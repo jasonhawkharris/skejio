@@ -44,35 +44,16 @@ func scanUser(row pgx.Row) (User, error) {
 	return u, err
 }
 
-func (a *App) ListUsers(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(r.Context(), "SELECT "+userColumns+" FROM users ORDER BY created_at")
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list users")
-		return
-	}
-	defer rows.Close()
-
-	users := []User{}
-	for rows.Next() {
-		u, err := scanUser(rows)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to read users")
-			return
-		}
-		users = append(users, u)
-	}
-	if err := rows.Err(); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to read users")
-		return
-	}
-
-	writeJSON(w, http.StatusOK, users)
-}
-
+// GetUser 404s (rather than 403s) for an id other than the caller's own, so
+// as not to reveal whether that account exists.
 func (a *App) GetUser(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(mux.Vars(r)["id"])
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if id != userFromContext(r.Context()).ID {
+		writeError(w, http.StatusNotFound, "user not found")
 		return
 	}
 
@@ -137,11 +118,16 @@ func (a *App) CreateUser(w http.ResponseWriter, r *http.Request) {
 
 // PatchUser applies a partial update to name, email, and/or password. A field
 // omitted from the JSON body is left unchanged; name/email/password may not
-// be set to null since all three columns are NOT NULL.
+// be set to null since all three columns are NOT NULL. An id other than the
+// caller's own 404s, same as GetUser.
 func (a *App) PatchUser(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(mux.Vars(r)["id"])
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if id != userFromContext(r.Context()).ID {
+		writeError(w, http.StatusNotFound, "user not found")
 		return
 	}
 
@@ -218,10 +204,15 @@ func (a *App) PatchUser(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, u)
 }
 
+// DeleteUser 404s for an id other than the caller's own, same as GetUser.
 func (a *App) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(mux.Vars(r)["id"])
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if id != userFromContext(r.Context()).ID {
+		writeError(w, http.StatusNotFound, "user not found")
 		return
 	}
 

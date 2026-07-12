@@ -24,16 +24,27 @@ func newRouter(app *App) *mux.Router {
 	r := mux.NewRouter()
 	r.HandleFunc("/", healthHandler).Methods(http.MethodGet)
 	r.HandleFunc("/test", testHandler).Methods(http.MethodGet)
-	r.HandleFunc("/tourdates", app.ListTourDates).Methods(http.MethodGet)
-	r.HandleFunc("/tourdates", app.CreateTourDate).Methods(http.MethodPost)
-	r.HandleFunc("/tourdates/{id}", app.GetTourDate).Methods(http.MethodGet)
-	r.HandleFunc("/tourdates/{id}", app.PatchTourDate).Methods(http.MethodPatch)
-	r.HandleFunc("/tourdates/{id}", app.DeleteTourDate).Methods(http.MethodDelete)
-	r.HandleFunc("/users", app.ListUsers).Methods(http.MethodGet)
+	r.HandleFunc("/login", app.Login).Methods(http.MethodPost)
+
+	tourdates := r.PathPrefix("/tourdates").Subrouter()
+	tourdates.Use(authMiddleware(app))
+	tourdates.HandleFunc("", app.ListTourDates).Methods(http.MethodGet)
+	tourdates.HandleFunc("", app.CreateTourDate).Methods(http.MethodPost)
+	tourdates.HandleFunc("/{id}", app.GetTourDate).Methods(http.MethodGet)
+	tourdates.HandleFunc("/{id}", app.PatchTourDate).Methods(http.MethodPatch)
+	tourdates.HandleFunc("/{id}", app.DeleteTourDate).Methods(http.MethodDelete)
+
+	logout := r.PathPrefix("/logout").Subrouter()
+	logout.Use(authMiddleware(app))
+	logout.HandleFunc("", app.Logout).Methods(http.MethodPost)
+
 	r.HandleFunc("/users", app.CreateUser).Methods(http.MethodPost)
-	r.HandleFunc("/users/{id}", app.GetUser).Methods(http.MethodGet)
-	r.HandleFunc("/users/{id}", app.PatchUser).Methods(http.MethodPatch)
-	r.HandleFunc("/users/{id}", app.DeleteUser).Methods(http.MethodDelete)
+
+	usersByID := r.PathPrefix("/users").Subrouter()
+	usersByID.Use(authMiddleware(app))
+	usersByID.HandleFunc("/{id}", app.GetUser).Methods(http.MethodGet)
+	usersByID.HandleFunc("/{id}", app.PatchUser).Methods(http.MethodPatch)
+	usersByID.HandleFunc("/{id}", app.DeleteUser).Methods(http.MethodDelete)
 	return r
 }
 

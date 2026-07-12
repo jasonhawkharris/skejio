@@ -47,26 +47,58 @@ func TestMain(m *testing.M) {
 
 func truncateTables(t *testing.T) {
 	t.Helper()
-	if _, err := testPool.Exec(context.Background(), "TRUNCATE TABLE tourdates, users"); err != nil {
+	if _, err := testPool.Exec(context.Background(), "TRUNCATE TABLE tourdates, users, sessions"); err != nil {
 		t.Fatalf("failed to truncate tables: %v", err)
 	}
 }
 
-func createTestUser(t *testing.T) uuid.UUID {
+const testUserPassword = "password123"
+
+// createAndLoginTestUser creates a user via the real /users endpoint and logs
+// them in via the real /login endpoint, returning the user and their session
+// token for use in Authorization headers.
+func createAndLoginTestUser(t *testing.T) (User, string) {
 	t.Helper()
-	return createTestUserViaAPI(t, fmt.Sprintf("%s@example.com", uuid.NewString())).ID
+	email := fmt.Sprintf("%s@example.com", uuid.NewString())
+	user := createTestUserViaAPI(t, email)
+	token := loginTestUser(t, email, testUserPassword)
+	return user, token
 }
 
+func loginTestUser(t *testing.T, email, password string) string {
+	t.Helper()
+	rec := doRequest(http.MethodPost, "/login", fmt.Sprintf(`{"email":%q,"password":%q}`, email, password))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("failed to log in: status %d, body %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode login response: %v", err)
+	}
+	return resp.Token
+}
+
+// doRequest issues an unauthenticated request (for /login, /users, /test, /).
 func doRequest(method, path, body string) *httptest.ResponseRecorder {
+	return doAuthRequest(method, path, body, "")
+}
+
+// doAuthRequest issues a request with an optional Bearer token.
+func doAuthRequest(method, path, body, token string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	rec := httptest.NewRecorder()
 	testRouter.ServeHTTP(rec, req)
 	return rec
 }
 
-func createTestTourDate(t *testing.T, userID uuid.UUID, body string) TourDate {
+func createTestTourDate(t *testing.T, token, body string) TourDate {
 	t.Helper()
-	rec := doRequest(http.MethodPost, "/tourdates", withUserID(body, userID))
+	rec := doAuthRequest(http.MethodPost, "/tourdates", body, token)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("failed to create tourdate: status %d, body %s", rec.Code, rec.Body.String())
 	}
@@ -77,26 +109,11 @@ func createTestTourDate(t *testing.T, userID uuid.UUID, body string) TourDate {
 	return td
 }
 
-// withUserID merges a "user_id" key into a JSON object literal used in tests.
-func withUserID(body string, userID uuid.UUID) string {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(body), &fields); err != nil {
-		panic("withUserID: invalid JSON body: " + err.Error())
-	}
-	idJSON, _ := json.Marshal(userID.String())
-	fields["user_id"] = idJSON
-	merged, err := json.Marshal(fields)
-	if err != nil {
-		panic("withUserID: failed to remarshal body: " + err.Error())
-	}
-	return string(merged)
-}
-
 func TestCreateTourDate(t *testing.T) {
 	truncateTables(t)
-	userID := createTestUser(t)
+	user, token := createAndLoginTestUser(t)
 
-	rec := doRequest(http.MethodPost, "/tourdates", withUserID(`{"date":"2026-09-15","city":"Austin","state":"TX","venue":"Moody Center"}`, userID))
+	rec := doAuthRequest(http.MethodPost, "/tourdates", `{"date":"2026-09-15","city":"Austin","state":"TX","venue":"Moody Center"}`, token)
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
@@ -108,8 +125,8 @@ func TestCreateTourDate(t *testing.T) {
 	if td.City != "Austin" || td.Venue != "Moody Center" || td.State == nil || *td.State != "TX" {
 		t.Fatalf("unexpected tourdate: %+v", td)
 	}
-	if td.UserID != userID {
-		t.Fatalf("expected user_id %s, got %s", userID, td.UserID)
+	if td.UserID != user.ID {
+		t.Fatalf("expected user_id %s, got %s", user.ID, td.UserID)
 	}
 	if td.ID.String() == "" {
 		t.Fatalf("expected a generated id")
@@ -118,9 +135,9 @@ func TestCreateTourDate(t *testing.T) {
 
 func TestCreateTourDate_NullableState(t *testing.T) {
 	truncateTables(t)
-	userID := createTestUser(t)
+	_, token := createAndLoginTestUser(t)
 
-	rec := doRequest(http.MethodPost, "/tourdates", withUserID(`{"date":"2026-09-15","city":"Austin","venue":"Moody Center"}`, userID))
+	rec := doAuthRequest(http.MethodPost, "/tourdates", `{"date":"2026-09-15","city":"Austin","venue":"Moody Center"}`, token)
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
@@ -134,7 +151,7 @@ func TestCreateTourDate_NullableState(t *testing.T) {
 
 func TestCreateTourDate_MissingRequiredFields(t *testing.T) {
 	truncateTables(t)
-	userID := createTestUser(t)
+	_, token := createAndLoginTestUser(t)
 
 	cases := []struct {
 		name string
@@ -146,7 +163,7 @@ func TestCreateTourDate_MissingRequiredFields(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			rec := doRequest(http.MethodPost, "/tourdates", withUserID(c.body, userID))
+			rec := doAuthRequest(http.MethodPost, "/tourdates", c.body, token)
 			if rec.Code != http.StatusBadRequest {
 				t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 			}
@@ -154,41 +171,33 @@ func TestCreateTourDate_MissingRequiredFields(t *testing.T) {
 	}
 }
 
-func TestCreateTourDate_MissingUserID(t *testing.T) {
+func TestCreateTourDate_RequiresAuth(t *testing.T) {
 	truncateTables(t)
 
 	rec := doRequest(http.MethodPost, "/tourdates", `{"date":"2026-09-15","city":"Austin","venue":"Moody Center"}`)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestCreateTourDate_UnknownUserID(t *testing.T) {
-	truncateTables(t)
-
-	rec := doRequest(http.MethodPost, "/tourdates", `{"date":"2026-09-15","city":"Austin","venue":"Moody Center","user_id":"11111111-1111-1111-1111-111111111111"}`)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
 func TestCreateTourDate_InvalidJSON(t *testing.T) {
 	truncateTables(t)
+	_, token := createAndLoginTestUser(t)
 
-	rec := doRequest(http.MethodPost, "/tourdates", `not json`)
+	rec := doAuthRequest(http.MethodPost, "/tourdates", `not json`, token)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
-func TestListTourDates(t *testing.T) {
+func TestListTourDates_OrderedByDate(t *testing.T) {
 	truncateTables(t)
-	userID := createTestUser(t)
+	_, token := createAndLoginTestUser(t)
 
-	createTestTourDate(t, userID, `{"date":"2026-10-01","city":"Dallas","venue":"American Airlines Center"}`)
-	createTestTourDate(t, userID, `{"date":"2026-09-15","city":"Austin","venue":"Moody Center"}`)
+	createTestTourDate(t, token, `{"date":"2026-10-01","city":"Dallas","venue":"American Airlines Center"}`)
+	createTestTourDate(t, token, `{"date":"2026-09-15","city":"Austin","venue":"Moody Center"}`)
 
-	rec := doRequest(http.MethodGet, "/tourdates", "")
+	rec := doAuthRequest(http.MethodGet, "/tourdates", "", token)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -204,12 +213,31 @@ func TestListTourDates(t *testing.T) {
 	}
 }
 
+func TestListTourDates_ScopedToOwner(t *testing.T) {
+	truncateTables(t)
+	_, tokenA := createAndLoginTestUser(t)
+	_, tokenB := createAndLoginTestUser(t)
+
+	createTestTourDate(t, tokenA, `{"date":"2026-09-15","city":"Austin","venue":"Moody Center"}`)
+	createTestTourDate(t, tokenB, `{"date":"2026-09-20","city":"Dallas","venue":"American Airlines Center"}`)
+
+	rec := doAuthRequest(http.MethodGet, "/tourdates", "", tokenA)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var tourdates []TourDate
+	json.Unmarshal(rec.Body.Bytes(), &tourdates)
+	if len(tourdates) != 1 || tourdates[0].City != "Austin" {
+		t.Fatalf("expected only user A's tourdate, got %+v", tourdates)
+	}
+}
+
 func TestGetTourDate(t *testing.T) {
 	truncateTables(t)
-	userID := createTestUser(t)
-	created := createTestTourDate(t, userID, `{"date":"2026-09-15","city":"Austin","venue":"Moody Center"}`)
+	_, token := createAndLoginTestUser(t)
+	created := createTestTourDate(t, token, `{"date":"2026-09-15","city":"Austin","venue":"Moody Center"}`)
 
-	rec := doRequest(http.MethodGet, "/tourdates/"+created.ID.String(), "")
+	rec := doAuthRequest(http.MethodGet, "/tourdates/"+created.ID.String(), "", token)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -222,8 +250,9 @@ func TestGetTourDate(t *testing.T) {
 
 func TestGetTourDate_NotFound(t *testing.T) {
 	truncateTables(t)
+	_, token := createAndLoginTestUser(t)
 
-	rec := doRequest(http.MethodGet, "/tourdates/11111111-1111-1111-1111-111111111111", "")
+	rec := doAuthRequest(http.MethodGet, "/tourdates/11111111-1111-1111-1111-111111111111", "", token)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -231,19 +260,43 @@ func TestGetTourDate_NotFound(t *testing.T) {
 
 func TestGetTourDate_InvalidID(t *testing.T) {
 	truncateTables(t)
+	_, token := createAndLoginTestUser(t)
 
-	rec := doRequest(http.MethodGet, "/tourdates/not-a-uuid", "")
+	rec := doAuthRequest(http.MethodGet, "/tourdates/not-a-uuid", "", token)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
+func TestGetTourDate_RequiresAuth(t *testing.T) {
+	truncateTables(t)
+	_, token := createAndLoginTestUser(t)
+	created := createTestTourDate(t, token, `{"date":"2026-09-15","city":"Austin","venue":"Moody Center"}`)
+
+	rec := doRequest(http.MethodGet, "/tourdates/"+created.ID.String(), "")
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGetTourDate_OtherUsersTourdate404(t *testing.T) {
+	truncateTables(t)
+	_, tokenA := createAndLoginTestUser(t)
+	_, tokenB := createAndLoginTestUser(t)
+	created := createTestTourDate(t, tokenA, `{"date":"2026-09-15","city":"Austin","venue":"Moody Center"}`)
+
+	rec := doAuthRequest(http.MethodGet, "/tourdates/"+created.ID.String(), "", tokenB)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 (not 403, to avoid revealing existence), got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestPatchTourDate_PartialUpdate(t *testing.T) {
 	truncateTables(t)
-	userID := createTestUser(t)
-	created := createTestTourDate(t, userID, `{"date":"2026-09-15","city":"Austin","state":"TX","venue":"Moody Center"}`)
+	_, token := createAndLoginTestUser(t)
+	created := createTestTourDate(t, token, `{"date":"2026-09-15","city":"Austin","state":"TX","venue":"Moody Center"}`)
 
-	rec := doRequest(http.MethodPatch, "/tourdates/"+created.ID.String(), `{"venue":"ACL Live"}`)
+	rec := doAuthRequest(http.MethodPatch, "/tourdates/"+created.ID.String(), `{"venue":"ACL Live"}`, token)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -259,10 +312,10 @@ func TestPatchTourDate_PartialUpdate(t *testing.T) {
 
 func TestPatchTourDate_ClearStateToNull(t *testing.T) {
 	truncateTables(t)
-	userID := createTestUser(t)
-	created := createTestTourDate(t, userID, `{"date":"2026-09-15","city":"Austin","state":"TX","venue":"Moody Center"}`)
+	_, token := createAndLoginTestUser(t)
+	created := createTestTourDate(t, token, `{"date":"2026-09-15","city":"Austin","state":"TX","venue":"Moody Center"}`)
 
-	rec := doRequest(http.MethodPatch, "/tourdates/"+created.ID.String(), `{"state":null}`)
+	rec := doAuthRequest(http.MethodPatch, "/tourdates/"+created.ID.String(), `{"state":null}`, token)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -273,38 +326,11 @@ func TestPatchTourDate_ClearStateToNull(t *testing.T) {
 	}
 }
 
-func TestPatchTourDate_Reassign(t *testing.T) {
-	truncateTables(t)
-	userID := createTestUser(t)
-	otherUserID := createTestUser(t)
-	created := createTestTourDate(t, userID, `{"date":"2026-09-15","city":"Austin","venue":"Moody Center"}`)
-
-	rec := doRequest(http.MethodPatch, "/tourdates/"+created.ID.String(), fmt.Sprintf(`{"user_id":"%s"}`, otherUserID))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-	var td TourDate
-	json.Unmarshal(rec.Body.Bytes(), &td)
-	if td.UserID != otherUserID {
-		t.Fatalf("expected user_id %s, got %s", otherUserID, td.UserID)
-	}
-}
-
-func TestPatchTourDate_UnknownUserID(t *testing.T) {
-	truncateTables(t)
-	userID := createTestUser(t)
-	created := createTestTourDate(t, userID, `{"date":"2026-09-15","city":"Austin","venue":"Moody Center"}`)
-
-	rec := doRequest(http.MethodPatch, "/tourdates/"+created.ID.String(), `{"user_id":"11111111-1111-1111-1111-111111111111"}`)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
-	}
-}
-
 func TestPatchTourDate_NotFound(t *testing.T) {
 	truncateTables(t)
+	_, token := createAndLoginTestUser(t)
 
-	rec := doRequest(http.MethodPatch, "/tourdates/11111111-1111-1111-1111-111111111111", `{"venue":"ACL Live"}`)
+	rec := doAuthRequest(http.MethodPatch, "/tourdates/11111111-1111-1111-1111-111111111111", `{"venue":"ACL Live"}`, token)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -312,26 +338,38 @@ func TestPatchTourDate_NotFound(t *testing.T) {
 
 func TestPatchTourDate_NoFields(t *testing.T) {
 	truncateTables(t)
-	userID := createTestUser(t)
-	created := createTestTourDate(t, userID, `{"date":"2026-09-15","city":"Austin","venue":"Moody Center"}`)
+	_, token := createAndLoginTestUser(t)
+	created := createTestTourDate(t, token, `{"date":"2026-09-15","city":"Austin","venue":"Moody Center"}`)
 
-	rec := doRequest(http.MethodPatch, "/tourdates/"+created.ID.String(), `{}`)
+	rec := doAuthRequest(http.MethodPatch, "/tourdates/"+created.ID.String(), `{}`, token)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
+func TestPatchTourDate_OtherUsersTourdate404(t *testing.T) {
+	truncateTables(t)
+	_, tokenA := createAndLoginTestUser(t)
+	_, tokenB := createAndLoginTestUser(t)
+	created := createTestTourDate(t, tokenA, `{"date":"2026-09-15","city":"Austin","venue":"Moody Center"}`)
+
+	rec := doAuthRequest(http.MethodPatch, "/tourdates/"+created.ID.String(), `{"venue":"Hacked"}`, tokenB)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestDeleteTourDate(t *testing.T) {
 	truncateTables(t)
-	userID := createTestUser(t)
-	created := createTestTourDate(t, userID, `{"date":"2026-09-15","city":"Austin","venue":"Moody Center"}`)
+	_, token := createAndLoginTestUser(t)
+	created := createTestTourDate(t, token, `{"date":"2026-09-15","city":"Austin","venue":"Moody Center"}`)
 
-	rec := doRequest(http.MethodDelete, "/tourdates/"+created.ID.String(), "")
+	rec := doAuthRequest(http.MethodDelete, "/tourdates/"+created.ID.String(), "", token)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	rec = doRequest(http.MethodGet, "/tourdates/"+created.ID.String(), "")
+	rec = doAuthRequest(http.MethodGet, "/tourdates/"+created.ID.String(), "", token)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 after delete, got %d", rec.Code)
 	}
@@ -339,9 +377,27 @@ func TestDeleteTourDate(t *testing.T) {
 
 func TestDeleteTourDate_NotFound(t *testing.T) {
 	truncateTables(t)
+	_, token := createAndLoginTestUser(t)
 
-	rec := doRequest(http.MethodDelete, "/tourdates/11111111-1111-1111-1111-111111111111", "")
+	rec := doAuthRequest(http.MethodDelete, "/tourdates/11111111-1111-1111-1111-111111111111", "", token)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestDeleteTourDate_OtherUsersTourdate404(t *testing.T) {
+	truncateTables(t)
+	_, tokenA := createAndLoginTestUser(t)
+	_, tokenB := createAndLoginTestUser(t)
+	created := createTestTourDate(t, tokenA, `{"date":"2026-09-15","city":"Austin","venue":"Moody Center"}`)
+
+	rec := doAuthRequest(http.MethodDelete, "/tourdates/"+created.ID.String(), "", tokenB)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doAuthRequest(http.MethodGet, "/tourdates/"+created.ID.String(), "", tokenA)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected tourdate to survive the other user's failed delete, got %d", rec.Code)
 	}
 }

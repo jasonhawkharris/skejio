@@ -11,7 +11,6 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -72,13 +71,12 @@ func scanTourDate(row pgx.Row) (TourDate, error) {
 
 const tourDateColumns = "id, date, city, state, venue, user_id, created_at"
 
-func isForeignKeyViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == "23503"
-}
-
+// ListTourDates returns only the tourdates owned by the authenticated user.
 func (a *App) ListTourDates(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(r.Context(), "SELECT "+tourDateColumns+" FROM tourdates ORDER BY date")
+	userID := userFromContext(r.Context()).ID
+
+	rows, err := a.db.Query(r.Context(),
+		"SELECT "+tourDateColumns+" FROM tourdates WHERE user_id = $1 ORDER BY date", userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list tourdates")
 		return
@@ -102,14 +100,18 @@ func (a *App) ListTourDates(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, tourdates)
 }
 
+// GetTourDate 404s (rather than 403s) when the tourdate belongs to another
+// user, so as not to reveal that it exists.
 func (a *App) GetTourDate(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(mux.Vars(r)["id"])
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
+	userID := userFromContext(r.Context()).ID
 
-	row := a.db.QueryRow(r.Context(), "SELECT "+tourDateColumns+" FROM tourdates WHERE id = $1", id)
+	row := a.db.QueryRow(r.Context(),
+		"SELECT "+tourDateColumns+" FROM tourdates WHERE id = $1 AND user_id = $2", id, userID)
 	td, err := scanTourDate(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "tourdate not found")
@@ -123,13 +125,14 @@ func (a *App) GetTourDate(w http.ResponseWriter, r *http.Request) {
 }
 
 type createTourDateRequest struct {
-	Date   Date      `json:"date"`
-	City   string    `json:"city"`
-	State  *string   `json:"state"`
-	Venue  string    `json:"venue"`
-	UserID uuid.UUID `json:"user_id"`
+	Date  Date    `json:"date"`
+	City  string  `json:"city"`
+	State *string `json:"state"`
+	Venue string  `json:"venue"`
 }
 
+// CreateTourDate always assigns ownership to the authenticated user; the
+// client cannot specify a different owner.
 func (a *App) CreateTourDate(w http.ResponseWriter, r *http.Request) {
 	var req createTourDateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -148,19 +151,13 @@ func (a *App) CreateTourDate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "venue is required")
 		return
 	}
-	if req.UserID == uuid.Nil {
-		writeError(w, http.StatusBadRequest, "user_id is required")
-		return
-	}
+	userID := userFromContext(r.Context()).ID
 
 	row := a.db.QueryRow(r.Context(),
 		"INSERT INTO tourdates (date, city, state, venue, user_id) VALUES ($1, $2, $3, $4, $5) RETURNING "+tourDateColumns,
-		time.Time(req.Date), req.City, req.State, req.Venue, req.UserID)
+		time.Time(req.Date), req.City, req.State, req.Venue, userID)
 	td, err := scanTourDate(row)
-	if isForeignKeyViolation(err) {
-		writeError(w, http.StatusBadRequest, "user_id does not reference an existing user")
-		return
-	} else if err != nil {
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create tourdate")
 		return
 	}
@@ -170,13 +167,15 @@ func (a *App) CreateTourDate(w http.ResponseWriter, r *http.Request) {
 
 // PatchTourDate applies a partial update. A field omitted from the JSON body
 // is left unchanged; a field present but set to null clears it (only valid
-// for the nullable "state" column).
+// for the nullable "state" column). Ownership is not patchable. A tourdate
+// owned by another user 404s, same as GetTourDate.
 func (a *App) PatchTourDate(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(mux.Vars(r)["id"])
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
+	userID := userFromContext(r.Context()).ID
 
 	var raw map[string]json.RawMessage
 	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
@@ -230,38 +229,22 @@ func (a *App) PatchTourDate(w http.ResponseWriter, r *http.Request) {
 		}
 		addSet("venue", s)
 	}
-	if v, ok := raw["user_id"]; ok {
-		var s string
-		if err := json.Unmarshal(v, &s); err != nil {
-			writeError(w, http.StatusBadRequest, "user_id must be a string")
-			return
-		}
-		userID, err := uuid.Parse(s)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "user_id must be a valid UUID")
-			return
-		}
-		addSet("user_id", userID)
-	}
 
 	if len(setClauses) == 0 {
 		writeError(w, http.StatusBadRequest, "no updatable fields provided")
 		return
 	}
 
-	args = append(args, id)
+	args = append(args, id, userID)
 	query := fmt.Sprintf(
-		"UPDATE tourdates SET %s WHERE id = $%d RETURNING "+tourDateColumns,
-		strings.Join(setClauses, ", "), argPos,
+		"UPDATE tourdates SET %s WHERE id = $%d AND user_id = $%d RETURNING "+tourDateColumns,
+		strings.Join(setClauses, ", "), argPos, argPos+1,
 	)
 
 	row := a.db.QueryRow(r.Context(), query, args...)
 	td, err := scanTourDate(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "tourdate not found")
-		return
-	} else if isForeignKeyViolation(err) {
-		writeError(w, http.StatusBadRequest, "user_id does not reference an existing user")
 		return
 	} else if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update tourdate")
@@ -271,14 +254,17 @@ func (a *App) PatchTourDate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, td)
 }
 
+// DeleteTourDate 404s for a tourdate owned by another user, same as
+// GetTourDate/PatchTourDate.
 func (a *App) DeleteTourDate(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(mux.Vars(r)["id"])
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
+	userID := userFromContext(r.Context()).ID
 
-	tag, err := a.db.Exec(r.Context(), "DELETE FROM tourdates WHERE id = $1", id)
+	tag, err := a.db.Exec(r.Context(), "DELETE FROM tourdates WHERE id = $1 AND user_id = $2", id, userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete tourdate")
 		return
