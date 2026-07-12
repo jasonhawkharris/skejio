@@ -22,8 +22,9 @@ type contextKey int
 const currentUserContextKey contextKey = iota
 
 type currentUser struct {
-	ID    uuid.UUID
-	Token string
+	ID       uuid.UUID
+	UserType string
+	Token    string
 }
 
 func userFromContext(ctx context.Context) currentUser {
@@ -51,9 +52,12 @@ func authMiddleware(app *App) func(http.Handler) http.Handler {
 			}
 
 			var userID uuid.UUID
+			var userType string
 			err := app.db.QueryRow(r.Context(),
-				"SELECT user_id FROM sessions WHERE token = $1 AND expires_at > now()", token,
-			).Scan(&userID)
+				`SELECT s.user_id, u.user_type FROM sessions s
+				 JOIN users u ON u.id = s.user_id
+				 WHERE s.token = $1 AND s.expires_at > now()`, token,
+			).Scan(&userID, &userType)
 			if errors.Is(err, pgx.ErrNoRows) {
 				writeError(w, http.StatusUnauthorized, "invalid or expired session")
 				return
@@ -62,7 +66,7 @@ func authMiddleware(app *App) func(http.Handler) http.Handler {
 				return
 			}
 
-			ctx := context.WithValue(r.Context(), currentUserContextKey, currentUser{ID: userID, Token: token})
+			ctx := context.WithValue(r.Context(), currentUserContextKey, currentUser{ID: userID, UserType: userType, Token: token})
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

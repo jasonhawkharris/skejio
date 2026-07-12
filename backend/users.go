@@ -20,7 +20,16 @@ type User struct {
 	Name         string    `json:"name"`
 	Email        string    `json:"email"`
 	PasswordHash string    `json:"-"`
+	UserType     string    `json:"user_type"`
 	CreatedAt    time.Time `json:"created_at"`
+}
+
+var validUserTypes = map[string]bool{
+	"ARTIST":  true,
+	"MANAGER": true,
+	"AGENT":   true,
+	"CREW":    true,
+	"LABEL":   true,
 }
 
 func hashPassword(password string) (string, error) {
@@ -36,11 +45,11 @@ func isUniqueViolation(err error) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
-const userColumns = "id, name, email, created_at"
+const userColumns = "id, name, email, user_type, created_at"
 
 func scanUser(row pgx.Row) (User, error) {
 	var u User
-	err := row.Scan(&u.ID, &u.Name, &u.Email, &u.CreatedAt)
+	err := row.Scan(&u.ID, &u.Name, &u.Email, &u.UserType, &u.CreatedAt)
 	return u, err
 }
 
@@ -74,6 +83,7 @@ type createUserRequest struct {
 	Name     string `json:"name"`
 	Email    string `json:"email"`
 	Password string `json:"password"`
+	UserType string `json:"user_type"`
 }
 
 func (a *App) CreateUser(w http.ResponseWriter, r *http.Request) {
@@ -94,6 +104,10 @@ func (a *App) CreateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "password is required")
 		return
 	}
+	if !validUserTypes[req.UserType] {
+		writeError(w, http.StatusBadRequest, "user_type must be one of ARTIST, MANAGER, AGENT, CREW, LABEL")
+		return
+	}
 
 	hash, err := hashPassword(req.Password)
 	if err != nil {
@@ -102,8 +116,8 @@ func (a *App) CreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	row := a.db.QueryRow(r.Context(),
-		"INSERT INTO users (name, email, password_hash) VALUES ($1, $2, $3) RETURNING "+userColumns,
-		req.Name, req.Email, hash)
+		"INSERT INTO users (name, email, password_hash, user_type) VALUES ($1, $2, $3, $4) RETURNING "+userColumns,
+		req.Name, req.Email, hash, req.UserType)
 	u, err := scanUser(row)
 	if isUniqueViolation(err) {
 		writeError(w, http.StatusConflict, "email is already in use")
@@ -116,10 +130,10 @@ func (a *App) CreateUser(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, u)
 }
 
-// PatchUser applies a partial update to name, email, and/or password. A field
-// omitted from the JSON body is left unchanged; name/email/password may not
-// be set to null since all three columns are NOT NULL. An id other than the
-// caller's own 404s, same as GetUser.
+// PatchUser applies a partial update to name, email, password, and/or
+// user_type. A field omitted from the JSON body is left unchanged; none of
+// these may be set to null since all of the underlying columns are NOT
+// NULL. An id other than the caller's own 404s, same as GetUser.
 func (a *App) PatchUser(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(mux.Vars(r)["id"])
 	if err != nil {
@@ -175,6 +189,14 @@ func (a *App) PatchUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		addSet("password_hash", hash)
+	}
+	if v, ok := raw["user_type"]; ok {
+		var s string
+		if err := json.Unmarshal(v, &s); err != nil || !validUserTypes[s] {
+			writeError(w, http.StatusBadRequest, "user_type must be one of ARTIST, MANAGER, AGENT, CREW, LABEL")
+			return
+		}
+		addSet("user_type", s)
 	}
 
 	if len(setClauses) == 0 {

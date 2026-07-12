@@ -45,6 +45,17 @@ func newRouter(app *App) *mux.Router {
 	usersByID.HandleFunc("/{id}", app.GetUser).Methods(http.MethodGet)
 	usersByID.HandleFunc("/{id}", app.PatchUser).Methods(http.MethodPatch)
 	usersByID.HandleFunc("/{id}", app.DeleteUser).Methods(http.MethodDelete)
+
+	representatives := r.PathPrefix("/representatives").Subrouter()
+	representatives.Use(authMiddleware(app))
+	representatives.HandleFunc("", app.CreateRepresentative).Methods(http.MethodPost)
+	representatives.HandleFunc("", app.ListMyRepresentatives).Methods(http.MethodGet)
+	representatives.HandleFunc("/{id}", app.DeleteRepresentative).Methods(http.MethodDelete)
+
+	representedArtists := r.PathPrefix("/represented-artists").Subrouter()
+	representedArtists.Use(authMiddleware(app))
+	representedArtists.HandleFunc("", app.ListRepresentedArtists).Methods(http.MethodGet)
+
 	return r
 }
 

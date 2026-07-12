@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -71,15 +72,79 @@ func scanTourDate(row pgx.Row) (TourDate, error) {
 
 const tourDateColumns = "id, date, city, state, venue, user_id, created_at"
 
-// ListTourDates returns only the tourdates owned by the authenticated user.
-func (a *App) ListTourDates(w http.ResponseWriter, r *http.Request) {
-	userID := userFromContext(r.Context()).ID
+// accessibleArtistIDs returns the set of user ids whose tourdates the caller
+// may access: their own id, plus every artist they represent (if any).
+// Returned as strings so it can be bound directly to a ::uuid[] parameter.
+func accessibleArtistIDs(ctx context.Context, db *pgxpool.Pool, callerID uuid.UUID) ([]string, error) {
+	ids := []string{callerID.String()}
 
-	rows, err := a.db.Query(r.Context(),
-		"SELECT "+tourDateColumns+" FROM tourdates WHERE user_id = $1 ORDER BY date", userID)
+	rows, err := db.Query(ctx, "SELECT artist_id FROM artist_representatives WHERE representative_id = $1", callerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var artistID uuid.UUID
+		if err := rows.Scan(&artistID); err != nil {
+			return nil, err
+		}
+		ids = append(ids, artistID.String())
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return ids, nil
+}
+
+func containsID(ids []string, id uuid.UUID) bool {
+	target := id.String()
+	for _, existing := range ids {
+		if existing == target {
+			return true
+		}
+	}
+	return false
+}
+
+// ListTourDates returns the caller's own tourdates plus every tourdate
+// belonging to an artist they represent, merged into one list ordered by
+// date. If an "artist_id" query param is given, the list is narrowed to
+// just that artist - who must be the caller or someone they represent, else
+// a 404 (so as not to reveal whether that artist_id exists at all).
+func (a *App) ListTourDates(w http.ResponseWriter, r *http.Request) {
+	caller := userFromContext(r.Context())
+	accessibleIDs, err := accessibleArtistIDs(r.Context(), a.db, caller.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list tourdates")
 		return
+	}
+
+	var rows pgx.Rows
+	if artistIDParam := r.URL.Query().Get("artist_id"); artistIDParam != "" {
+		artistID, err := uuid.Parse(artistIDParam)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "artist_id must be a valid UUID")
+			return
+		}
+		if !containsID(accessibleIDs, artistID) {
+			writeError(w, http.StatusNotFound, "artist not found")
+			return
+		}
+		rows, err = a.db.Query(r.Context(),
+			"SELECT "+tourDateColumns+" FROM tourdates WHERE user_id = $1 ORDER BY date", artistID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to list tourdates")
+			return
+		}
+	} else {
+		rows, err = a.db.Query(r.Context(),
+			"SELECT "+tourDateColumns+" FROM tourdates WHERE user_id = ANY($1::uuid[]) ORDER BY date", accessibleIDs)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to list tourdates")
+			return
+		}
 	}
 	defer rows.Close()
 
@@ -100,18 +165,24 @@ func (a *App) ListTourDates(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, tourdates)
 }
 
-// GetTourDate 404s (rather than 403s) when the tourdate belongs to another
-// user, so as not to reveal that it exists.
+// GetTourDate 404s (rather than 403s) when the tourdate belongs to an artist
+// the caller doesn't represent (and isn't themselves), so as not to reveal
+// that it exists.
 func (a *App) GetTourDate(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(mux.Vars(r)["id"])
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	userID := userFromContext(r.Context()).ID
+	caller := userFromContext(r.Context())
+	accessibleIDs, err := accessibleArtistIDs(r.Context(), a.db, caller.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read tourdate")
+		return
+	}
 
 	row := a.db.QueryRow(r.Context(),
-		"SELECT "+tourDateColumns+" FROM tourdates WHERE id = $1 AND user_id = $2", id, userID)
+		"SELECT "+tourDateColumns+" FROM tourdates WHERE id = $1 AND user_id = ANY($2::uuid[])", id, accessibleIDs)
 	td, err := scanTourDate(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "tourdate not found")
@@ -125,14 +196,16 @@ func (a *App) GetTourDate(w http.ResponseWriter, r *http.Request) {
 }
 
 type createTourDateRequest struct {
-	Date  Date    `json:"date"`
-	City  string  `json:"city"`
-	State *string `json:"state"`
-	Venue string  `json:"venue"`
+	Date     Date      `json:"date"`
+	City     string    `json:"city"`
+	State    *string   `json:"state"`
+	Venue    string    `json:"venue"`
+	ArtistID uuid.UUID `json:"artist_id"`
 }
 
-// CreateTourDate always assigns ownership to the authenticated user; the
-// client cannot specify a different owner.
+// CreateTourDate assigns ownership to artist_id if given - which must be the
+// caller themselves or an artist they represent (403 otherwise) - or to the
+// caller themselves if artist_id is omitted.
 func (a *App) CreateTourDate(w http.ResponseWriter, r *http.Request) {
 	var req createTourDateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -151,11 +224,26 @@ func (a *App) CreateTourDate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "venue is required")
 		return
 	}
-	userID := userFromContext(r.Context()).ID
+
+	caller := userFromContext(r.Context())
+	artistID := req.ArtistID
+	if artistID == uuid.Nil {
+		artistID = caller.ID
+	} else if artistID != caller.ID {
+		accessibleIDs, err := accessibleArtistIDs(r.Context(), a.db, caller.ID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to create tourdate")
+			return
+		}
+		if !containsID(accessibleIDs, artistID) {
+			writeError(w, http.StatusForbidden, "you do not have access to create tourdates for this artist")
+			return
+		}
+	}
 
 	row := a.db.QueryRow(r.Context(),
 		"INSERT INTO tourdates (date, city, state, venue, user_id) VALUES ($1, $2, $3, $4, $5) RETURNING "+tourDateColumns,
-		time.Time(req.Date), req.City, req.State, req.Venue, userID)
+		time.Time(req.Date), req.City, req.State, req.Venue, artistID)
 	td, err := scanTourDate(row)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create tourdate")
@@ -168,14 +256,20 @@ func (a *App) CreateTourDate(w http.ResponseWriter, r *http.Request) {
 // PatchTourDate applies a partial update. A field omitted from the JSON body
 // is left unchanged; a field present but set to null clears it (only valid
 // for the nullable "state" column). Ownership is not patchable. A tourdate
-// owned by another user 404s, same as GetTourDate.
+// belonging to an artist the caller doesn't represent (and isn't themselves)
+// 404s, same as GetTourDate.
 func (a *App) PatchTourDate(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(mux.Vars(r)["id"])
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	userID := userFromContext(r.Context()).ID
+	caller := userFromContext(r.Context())
+	accessibleIDs, err := accessibleArtistIDs(r.Context(), a.db, caller.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update tourdate")
+		return
+	}
 
 	var raw map[string]json.RawMessage
 	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
@@ -235,9 +329,9 @@ func (a *App) PatchTourDate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	args = append(args, id, userID)
+	args = append(args, id, accessibleIDs)
 	query := fmt.Sprintf(
-		"UPDATE tourdates SET %s WHERE id = $%d AND user_id = $%d RETURNING "+tourDateColumns,
+		"UPDATE tourdates SET %s WHERE id = $%d AND user_id = ANY($%d::uuid[]) RETURNING "+tourDateColumns,
 		strings.Join(setClauses, ", "), argPos, argPos+1,
 	)
 
@@ -254,17 +348,23 @@ func (a *App) PatchTourDate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, td)
 }
 
-// DeleteTourDate 404s for a tourdate owned by another user, same as
-// GetTourDate/PatchTourDate.
+// DeleteTourDate 404s for a tourdate belonging to an artist the caller
+// doesn't represent (and isn't themselves), same as GetTourDate/PatchTourDate.
 func (a *App) DeleteTourDate(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(mux.Vars(r)["id"])
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	userID := userFromContext(r.Context()).ID
+	caller := userFromContext(r.Context())
+	accessibleIDs, err := accessibleArtistIDs(r.Context(), a.db, caller.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete tourdate")
+		return
+	}
 
-	tag, err := a.db.Exec(r.Context(), "DELETE FROM tourdates WHERE id = $1 AND user_id = $2", id, userID)
+	tag, err := a.db.Exec(r.Context(),
+		"DELETE FROM tourdates WHERE id = $1 AND user_id = ANY($2::uuid[])", id, accessibleIDs)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete tourdate")
 		return

@@ -13,7 +13,7 @@ import (
 
 func createTestUserViaAPI(t *testing.T, email string) User {
 	t.Helper()
-	rec := doRequest(http.MethodPost, "/users", fmt.Sprintf(`{"name":"Test User","email":%q,"password":%q}`, email, testUserPassword))
+	rec := doRequest(http.MethodPost, "/users", fmt.Sprintf(`{"name":"Test User","email":%q,"password":%q,"user_type":"ARTIST"}`, email, testUserPassword))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("failed to create user: status %d, body %s", rec.Code, rec.Body.String())
 	}
@@ -27,7 +27,7 @@ func createTestUserViaAPI(t *testing.T, email string) User {
 func TestCreateUser(t *testing.T) {
 	truncateTables(t)
 
-	rec := doRequest(http.MethodPost, "/users", `{"name":"Jason Harris","email":"jason@example.com","password":"password123"}`)
+	rec := doRequest(http.MethodPost, "/users", `{"name":"Jason Harris","email":"jason@example.com","password":"password123","user_type":"MANAGER"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -36,7 +36,7 @@ func TestCreateUser(t *testing.T) {
 	}
 	var u User
 	json.Unmarshal(rec.Body.Bytes(), &u)
-	if u.Name != "Jason Harris" || u.Email != "jason@example.com" {
+	if u.Name != "Jason Harris" || u.Email != "jason@example.com" || u.UserType != "MANAGER" {
 		t.Fatalf("unexpected user: %+v", u)
 	}
 	if u.ID.String() == "" {
@@ -51,9 +51,10 @@ func TestCreateUser_MissingFields(t *testing.T) {
 		name string
 		body string
 	}{
-		{"missing name", `{"email":"jason@example.com","password":"password123"}`},
-		{"missing email", `{"name":"Jason Harris","password":"password123"}`},
-		{"missing password", `{"name":"Jason Harris","email":"jason@example.com"}`},
+		{"missing name", `{"email":"jason@example.com","password":"password123","user_type":"ARTIST"}`},
+		{"missing email", `{"name":"Jason Harris","password":"password123","user_type":"ARTIST"}`},
+		{"missing password", `{"name":"Jason Harris","email":"jason@example.com","user_type":"ARTIST"}`},
+		{"missing user_type", `{"name":"Jason Harris","email":"jason@example.com","password":"password123"}`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -65,11 +66,20 @@ func TestCreateUser_MissingFields(t *testing.T) {
 	}
 }
 
+func TestCreateUser_InvalidUserType(t *testing.T) {
+	truncateTables(t)
+
+	rec := doRequest(http.MethodPost, "/users", `{"name":"Jason Harris","email":"jason@example.com","password":"password123","user_type":"WIZARD"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestCreateUser_DuplicateEmail(t *testing.T) {
 	truncateTables(t)
 	createTestUserViaAPI(t, "dup@example.com")
 
-	rec := doRequest(http.MethodPost, "/users", `{"name":"Someone Else","email":"dup@example.com","password":"password123"}`)
+	rec := doRequest(http.MethodPost, "/users", `{"name":"Someone Else","email":"dup@example.com","password":"password123","user_type":"ARTIST"}`)
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -180,6 +190,35 @@ func TestPatchUser_Password(t *testing.T) {
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte("newpassword456")); err != nil {
 		t.Fatalf("password_hash does not match new password: %v", err)
+	}
+}
+
+func TestPatchUser_UserType(t *testing.T) {
+	truncateTables(t)
+	email := "jason@example.com"
+	created := createTestUserViaAPI(t, email)
+	token := loginTestUser(t, email, testUserPassword)
+
+	rec := doAuthRequest(http.MethodPatch, "/users/"+created.ID.String(), `{"user_type":"LABEL"}`, token)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var u User
+	json.Unmarshal(rec.Body.Bytes(), &u)
+	if u.UserType != "LABEL" {
+		t.Fatalf("expected user_type updated to LABEL, got %s", u.UserType)
+	}
+}
+
+func TestPatchUser_InvalidUserType(t *testing.T) {
+	truncateTables(t)
+	email := "jason@example.com"
+	created := createTestUserViaAPI(t, email)
+	token := loginTestUser(t, email, testUserPassword)
+
+	rec := doAuthRequest(http.MethodPatch, "/users/"+created.ID.String(), `{"user_type":"WIZARD"}`, token)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 

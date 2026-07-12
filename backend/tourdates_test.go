@@ -47,7 +47,7 @@ func TestMain(m *testing.M) {
 
 func truncateTables(t *testing.T) {
 	t.Helper()
-	if _, err := testPool.Exec(context.Background(), "TRUNCATE TABLE tourdates, users, sessions"); err != nil {
+	if _, err := testPool.Exec(context.Background(), "TRUNCATE TABLE tourdates, users, sessions, artist_representatives"); err != nil {
 		t.Fatalf("failed to truncate tables: %v", err)
 	}
 }

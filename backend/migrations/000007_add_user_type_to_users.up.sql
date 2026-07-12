@@ -1,0 +1,2 @@
+ALTER TABLE users ADD COLUMN user_type TEXT NOT NULL
+    CHECK (user_type IN ('ARTIST', 'MANAGER', 'AGENT', 'CREW', 'LABEL'));
