@@ -5,11 +5,8 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"os"
 
 	"github.com/gorilla/mux"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/joho/godotenv"
 )
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
@@ -23,26 +20,30 @@ func testHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func main() {
-	if err := godotenv.Load(); err != nil {
-		log.Println("no .env file found, relying on process environment")
-	}
-
-	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
-	if err != nil {
-		log.Fatalf("unable to create connection pool: %v", err)
-	}
-	defer pool.Close()
-
-	if err := pool.Ping(ctx); err != nil {
-		log.Fatalf("unable to reach database: %v", err)
-	}
-	log.Println("connected to database")
-
+func newRouter(app *App) *mux.Router {
 	r := mux.NewRouter()
 	r.HandleFunc("/", healthHandler).Methods(http.MethodGet)
 	r.HandleFunc("/test", testHandler).Methods(http.MethodGet)
+	r.HandleFunc("/tourdates", app.ListTourDates).Methods(http.MethodGet)
+	r.HandleFunc("/tourdates", app.CreateTourDate).Methods(http.MethodPost)
+	r.HandleFunc("/tourdates/{id}", app.GetTourDate).Methods(http.MethodGet)
+	r.HandleFunc("/tourdates/{id}", app.PatchTourDate).Methods(http.MethodPatch)
+	r.HandleFunc("/tourdates/{id}", app.DeleteTourDate).Methods(http.MethodDelete)
+	r.HandleFunc("/users", app.ListUsers).Methods(http.MethodGet)
+	r.HandleFunc("/users", app.CreateUser).Methods(http.MethodPost)
+	r.HandleFunc("/users/{id}", app.GetUser).Methods(http.MethodGet)
+	r.HandleFunc("/users/{id}", app.PatchUser).Methods(http.MethodPatch)
+	r.HandleFunc("/users/{id}", app.DeleteUser).Methods(http.MethodDelete)
+	return r
+}
+
+func main() {
+	ctx := context.Background()
+	pool := connectDB(ctx)
+	defer pool.Close()
+
+	app := &App{db: pool}
+	r := newRouter(app)
 
 	log.Println("listening on :8080")
 	log.Fatal(http.ListenAndServe(":8080", r))
