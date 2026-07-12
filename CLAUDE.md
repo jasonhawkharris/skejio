@@ -41,7 +41,11 @@ Working directory for everything below: `backend/`.
 
 - `tourdates` are owned by `user_id`. A caller may act on their own tourdates plus any artist's tourdates they represent (see below). `internal/tourdates`'s unexported `accessibleArtistIDs()` computes that set (caller + everyone they represent) and every query filters on it via `user_id = ANY($n::uuid[])`. `GET /tourdates` merges across all accessible artists unless `?artist_id=` narrows to one (which must be in the accessible set, or 404s). `POST /tourdates` defaults ownership to the caller, or to an explicit `artist_id` in the body if the caller represents that artist (403 otherwise).
 - `users` are strictly self-only: `GET/PATCH/DELETE /users/{id}` 404 for any id but the caller's own. There is no "list all users" endpoint.
-- `artist_representatives` is a many-to-many join table (`artist_id`, `representative_id`, both FK → `users` `ON DELETE CASCADE`, `UNIQUE(artist_id, representative_id)`) granting a `MANAGER`/`AGENT`/`LABEL` user access to an `ARTIST`'s tourdates. Only the artist can grant access (`POST /representatives`); either party can revoke (`DELETE /representatives/{id}`).
+- `artist_representatives` is a many-to-many join table (`artist_id`, `representative_id`, both FK → `users` `ON DELETE CASCADE`, `UNIQUE(artist_id, representative_id)`) granting a `MANAGER`/`AGENT`/`LABEL` user access to an `ARTIST`'s tourdates. Endpoints (`internal/representatives`):
+  - `POST /representatives` — only an `ARTIST` may call this (403 otherwise); body `{"representative_id": "<uuid>"}` must reference an existing `MANAGER`/`AGENT`/`LABEL` user (400 otherwise); rejects granting to yourself and duplicate grants (409)
+  - `GET /representatives` — artist-only; lists the representatives the caller has granted access to
+  - `GET /represented-artists` — `MANAGER`/`AGENT`/`LABEL`-only; lists the artists the caller represents
+  - `DELETE /representatives/{id}` — either party (the artist or the representative) may revoke; an id the caller isn't part of 404s
 - `users.user_type` is DB-`CHECK`-constrained to `ARTIST`/`MANAGER`/`AGENT`/`CREW`/`LABEL`, and validated again in Go before the query runs so an invalid value gets a clean 400 instead of a raw constraint-violation error.
 
 **Request/response conventions**:
