@@ -1,4 +1,4 @@
-package main
+package auth
 
 import (
 	"context"
@@ -12,7 +12,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"golang.org/x/crypto/bcrypt"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"skejio/backend/internal/httpx"
+	"skejio/backend/internal/password"
 )
 
 const sessionDuration = 24 * time.Hour
@@ -21,14 +24,14 @@ type contextKey int
 
 const currentUserContextKey contextKey = iota
 
-type currentUser struct {
+type CurrentUser struct {
 	ID       uuid.UUID
 	UserType string
 	Token    string
 }
 
-func userFromContext(ctx context.Context) currentUser {
-	u, _ := ctx.Value(currentUserContextKey).(currentUser)
+func UserFromContext(ctx context.Context) CurrentUser {
+	u, _ := ctx.Value(currentUserContextKey).(CurrentUser)
 	return u
 }
 
@@ -40,36 +43,40 @@ func generateSessionToken() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// authMiddleware requires a valid, unexpired "Authorization: Bearer <token>"
+// Middleware requires a valid, unexpired "Authorization: Bearer <token>"
 // session and attaches the authenticated user to the request context.
-func authMiddleware(app *App) func(http.Handler) http.Handler {
+func Middleware(db *pgxpool.Pool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 			if !ok || token == "" {
-				writeError(w, http.StatusUnauthorized, "authentication required")
+				httpx.WriteError(w, http.StatusUnauthorized, "authentication required")
 				return
 			}
 
 			var userID uuid.UUID
 			var userType string
-			err := app.db.QueryRow(r.Context(),
+			err := db.QueryRow(r.Context(),
 				`SELECT s.user_id, u.user_type FROM sessions s
 				 JOIN users u ON u.id = s.user_id
 				 WHERE s.token = $1 AND s.expires_at > now()`, token,
 			).Scan(&userID, &userType)
 			if errors.Is(err, pgx.ErrNoRows) {
-				writeError(w, http.StatusUnauthorized, "invalid or expired session")
+				httpx.WriteError(w, http.StatusUnauthorized, "invalid or expired session")
 				return
 			} else if err != nil {
-				writeError(w, http.StatusInternalServerError, "failed to authenticate")
+				httpx.WriteError(w, http.StatusInternalServerError, "failed to authenticate")
 				return
 			}
 
-			ctx := context.WithValue(r.Context(), currentUserContextKey, currentUser{ID: userID, UserType: userType, Token: token})
+			ctx := context.WithValue(r.Context(), currentUserContextKey, CurrentUser{ID: userID, UserType: userType, Token: token})
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+type Handler struct {
+	DB *pgxpool.Pool
 }
 
 type loginRequest struct {
@@ -77,59 +84,59 @@ type loginRequest struct {
 	Password string `json:"password"`
 }
 
-func (a *App) Login(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var req loginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 	if req.Email == "" || req.Password == "" {
-		writeError(w, http.StatusBadRequest, "email and password are required")
+		httpx.WriteError(w, http.StatusBadRequest, "email and password are required")
 		return
 	}
 
 	var userID uuid.UUID
 	var passwordHash string
-	err := a.db.QueryRow(r.Context(), "SELECT id, password_hash FROM users WHERE email = $1", req.Email).
+	err := h.DB.QueryRow(r.Context(), "SELECT id, password_hash FROM users WHERE email = $1", req.Email).
 		Scan(&userID, &passwordHash)
 	if errors.Is(err, pgx.ErrNoRows) {
-		writeError(w, http.StatusUnauthorized, "invalid email or password")
+		httpx.WriteError(w, http.StatusUnauthorized, "invalid email or password")
 		return
 	} else if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to log in")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to log in")
 		return
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)); err != nil {
-		writeError(w, http.StatusUnauthorized, "invalid email or password")
+	if err := password.Verify(passwordHash, req.Password); err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "invalid email or password")
 		return
 	}
 
 	token, err := generateSessionToken()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to log in")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to log in")
 		return
 	}
 	expiresAt := time.Now().Add(sessionDuration)
 
-	if _, err := a.db.Exec(r.Context(),
+	if _, err := h.DB.Exec(r.Context(),
 		"INSERT INTO sessions (token, user_id, expires_at) VALUES ($1, $2, $3)",
 		token, userID, expiresAt,
 	); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to log in")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to log in")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"token":      token,
 		"expires_at": expiresAt,
 	})
 }
 
-func (a *App) Logout(w http.ResponseWriter, r *http.Request) {
-	cu := userFromContext(r.Context())
-	if _, err := a.db.Exec(r.Context(), "DELETE FROM sessions WHERE token = $1", cu.Token); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to log out")
+func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
+	cu := UserFromContext(r.Context())
+	if _, err := h.DB.Exec(r.Context(), "DELETE FROM sessions WHERE token = $1", cu.Token); err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to log out")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

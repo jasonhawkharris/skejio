@@ -1,0 +1,65 @@
+package api
+
+import (
+	"encoding/json"
+	"net/http"
+
+	"github.com/gorilla/mux"
+
+	"skejio/backend/internal/auth"
+	"skejio/backend/internal/representatives"
+	"skejio/backend/internal/tourdates"
+	"skejio/backend/internal/users"
+)
+
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+func testHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "Hey, Jason. This is a test",
+	})
+}
+
+// NewRouter wires every route. authH.DB is used to construct the auth
+// middleware, since all handlers share the same underlying connection pool.
+func NewRouter(authH *auth.Handler, tourdatesH *tourdates.Handler, usersH *users.Handler, repsH *representatives.Handler) *mux.Router {
+	r := mux.NewRouter()
+	r.HandleFunc("/", healthHandler).Methods(http.MethodGet)
+	r.HandleFunc("/test", testHandler).Methods(http.MethodGet)
+	r.HandleFunc("/login", authH.Login).Methods(http.MethodPost)
+
+	tourdatesRouter := r.PathPrefix("/tourdates").Subrouter()
+	tourdatesRouter.Use(auth.Middleware(authH.DB))
+	tourdatesRouter.HandleFunc("", tourdatesH.List).Methods(http.MethodGet)
+	tourdatesRouter.HandleFunc("", tourdatesH.Create).Methods(http.MethodPost)
+	tourdatesRouter.HandleFunc("/{id}", tourdatesH.Get).Methods(http.MethodGet)
+	tourdatesRouter.HandleFunc("/{id}", tourdatesH.Patch).Methods(http.MethodPatch)
+	tourdatesRouter.HandleFunc("/{id}", tourdatesH.Delete).Methods(http.MethodDelete)
+
+	logoutRouter := r.PathPrefix("/logout").Subrouter()
+	logoutRouter.Use(auth.Middleware(authH.DB))
+	logoutRouter.HandleFunc("", authH.Logout).Methods(http.MethodPost)
+
+	r.HandleFunc("/users", usersH.Create).Methods(http.MethodPost)
+
+	usersByID := r.PathPrefix("/users").Subrouter()
+	usersByID.Use(auth.Middleware(authH.DB))
+	usersByID.HandleFunc("/{id}", usersH.Get).Methods(http.MethodGet)
+	usersByID.HandleFunc("/{id}", usersH.Patch).Methods(http.MethodPatch)
+	usersByID.HandleFunc("/{id}", usersH.Delete).Methods(http.MethodDelete)
+
+	representativesRouter := r.PathPrefix("/representatives").Subrouter()
+	representativesRouter.Use(auth.Middleware(authH.DB))
+	representativesRouter.HandleFunc("", repsH.Create).Methods(http.MethodPost)
+	representativesRouter.HandleFunc("", repsH.ListRepresentatives).Methods(http.MethodGet)
+	representativesRouter.HandleFunc("/{id}", repsH.Delete).Methods(http.MethodDelete)
+
+	representedArtistsRouter := r.PathPrefix("/represented-artists").Subrouter()
+	representedArtistsRouter.Use(auth.Middleware(authH.DB))
+	representedArtistsRouter.HandleFunc("", repsH.ListArtists).Methods(http.MethodGet)
+
+	return r
+}

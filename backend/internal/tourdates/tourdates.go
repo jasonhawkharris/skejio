@@ -1,4 +1,4 @@
-package main
+package tourdates
 
 import (
 	"context"
@@ -13,6 +13,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"skejio/backend/internal/auth"
+	"skejio/backend/internal/httpx"
 )
 
 const dateLayout = "2006-01-02"
@@ -48,18 +51,8 @@ type TourDate struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-type App struct {
-	db *pgxpool.Pool
-}
-
-func writeJSON(w http.ResponseWriter, status int, body any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(body)
-}
-
-func writeError(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, map[string]string{"error": message})
+type Handler struct {
+	DB *pgxpool.Pool
 }
 
 func scanTourDate(row pgx.Row) (TourDate, error) {
@@ -108,16 +101,16 @@ func containsID(ids []string, id uuid.UUID) bool {
 	return false
 }
 
-// ListTourDates returns the caller's own tourdates plus every tourdate
-// belonging to an artist they represent, merged into one list ordered by
-// date. If an "artist_id" query param is given, the list is narrowed to
-// just that artist - who must be the caller or someone they represent, else
-// a 404 (so as not to reveal whether that artist_id exists at all).
-func (a *App) ListTourDates(w http.ResponseWriter, r *http.Request) {
-	caller := userFromContext(r.Context())
-	accessibleIDs, err := accessibleArtistIDs(r.Context(), a.db, caller.ID)
+// List returns the caller's own tourdates plus every tourdate belonging to
+// an artist they represent, merged into one list ordered by date. If an
+// "artist_id" query param is given, the list is narrowed to just that
+// artist - who must be the caller or someone they represent, else a 404 (so
+// as not to reveal whether that artist_id exists at all).
+func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
+	caller := auth.UserFromContext(r.Context())
+	accessibleIDs, err := accessibleArtistIDs(r.Context(), h.DB, caller.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list tourdates")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to list tourdates")
 		return
 	}
 
@@ -125,24 +118,24 @@ func (a *App) ListTourDates(w http.ResponseWriter, r *http.Request) {
 	if artistIDParam := r.URL.Query().Get("artist_id"); artistIDParam != "" {
 		artistID, err := uuid.Parse(artistIDParam)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "artist_id must be a valid UUID")
+			httpx.WriteError(w, http.StatusBadRequest, "artist_id must be a valid UUID")
 			return
 		}
 		if !containsID(accessibleIDs, artistID) {
-			writeError(w, http.StatusNotFound, "artist not found")
+			httpx.WriteError(w, http.StatusNotFound, "artist not found")
 			return
 		}
-		rows, err = a.db.Query(r.Context(),
+		rows, err = h.DB.Query(r.Context(),
 			"SELECT "+tourDateColumns+" FROM tourdates WHERE user_id = $1 ORDER BY date", artistID)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to list tourdates")
+			httpx.WriteError(w, http.StatusInternalServerError, "failed to list tourdates")
 			return
 		}
 	} else {
-		rows, err = a.db.Query(r.Context(),
+		rows, err = h.DB.Query(r.Context(),
 			"SELECT "+tourDateColumns+" FROM tourdates WHERE user_id = ANY($1::uuid[]) ORDER BY date", accessibleIDs)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to list tourdates")
+			httpx.WriteError(w, http.StatusInternalServerError, "failed to list tourdates")
 			return
 		}
 	}
@@ -152,47 +145,47 @@ func (a *App) ListTourDates(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		td, err := scanTourDate(rows)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to read tourdates")
+			httpx.WriteError(w, http.StatusInternalServerError, "failed to read tourdates")
 			return
 		}
 		tourdates = append(tourdates, td)
 	}
 	if err := rows.Err(); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to read tourdates")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to read tourdates")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, tourdates)
+	httpx.WriteJSON(w, http.StatusOK, tourdates)
 }
 
-// GetTourDate 404s (rather than 403s) when the tourdate belongs to an artist
-// the caller doesn't represent (and isn't themselves), so as not to reveal
-// that it exists.
-func (a *App) GetTourDate(w http.ResponseWriter, r *http.Request) {
+// Get 404s (rather than 403s) when the tourdate belongs to an artist the
+// caller doesn't represent (and isn't themselves), so as not to reveal that
+// it exists.
+func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(mux.Vars(r)["id"])
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid id")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	caller := userFromContext(r.Context())
-	accessibleIDs, err := accessibleArtistIDs(r.Context(), a.db, caller.ID)
+	caller := auth.UserFromContext(r.Context())
+	accessibleIDs, err := accessibleArtistIDs(r.Context(), h.DB, caller.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to read tourdate")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to read tourdate")
 		return
 	}
 
-	row := a.db.QueryRow(r.Context(),
+	row := h.DB.QueryRow(r.Context(),
 		"SELECT "+tourDateColumns+" FROM tourdates WHERE id = $1 AND user_id = ANY($2::uuid[])", id, accessibleIDs)
 	td, err := scanTourDate(row)
 	if errors.Is(err, pgx.ErrNoRows) {
-		writeError(w, http.StatusNotFound, "tourdate not found")
+		httpx.WriteError(w, http.StatusNotFound, "tourdate not found")
 		return
 	} else if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to read tourdate")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to read tourdate")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, td)
+	httpx.WriteJSON(w, http.StatusOK, td)
 }
 
 type createTourDateRequest struct {
@@ -203,77 +196,77 @@ type createTourDateRequest struct {
 	ArtistID uuid.UUID `json:"artist_id"`
 }
 
-// CreateTourDate assigns ownership to artist_id if given - which must be the
-// caller themselves or an artist they represent (403 otherwise) - or to the
-// caller themselves if artist_id is omitted.
-func (a *App) CreateTourDate(w http.ResponseWriter, r *http.Request) {
+// Create assigns ownership to artist_id if given - which must be the caller
+// themselves or an artist they represent (403 otherwise) - or to the caller
+// themselves if artist_id is omitted.
+func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	var req createTourDateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 	if time.Time(req.Date).IsZero() {
-		writeError(w, http.StatusBadRequest, "date is required")
+		httpx.WriteError(w, http.StatusBadRequest, "date is required")
 		return
 	}
 	if req.City == "" {
-		writeError(w, http.StatusBadRequest, "city is required")
+		httpx.WriteError(w, http.StatusBadRequest, "city is required")
 		return
 	}
 	if req.Venue == "" {
-		writeError(w, http.StatusBadRequest, "venue is required")
+		httpx.WriteError(w, http.StatusBadRequest, "venue is required")
 		return
 	}
 
-	caller := userFromContext(r.Context())
+	caller := auth.UserFromContext(r.Context())
 	artistID := req.ArtistID
 	if artistID == uuid.Nil {
 		artistID = caller.ID
 	} else if artistID != caller.ID {
-		accessibleIDs, err := accessibleArtistIDs(r.Context(), a.db, caller.ID)
+		accessibleIDs, err := accessibleArtistIDs(r.Context(), h.DB, caller.ID)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to create tourdate")
+			httpx.WriteError(w, http.StatusInternalServerError, "failed to create tourdate")
 			return
 		}
 		if !containsID(accessibleIDs, artistID) {
-			writeError(w, http.StatusForbidden, "you do not have access to create tourdates for this artist")
+			httpx.WriteError(w, http.StatusForbidden, "you do not have access to create tourdates for this artist")
 			return
 		}
 	}
 
-	row := a.db.QueryRow(r.Context(),
+	row := h.DB.QueryRow(r.Context(),
 		"INSERT INTO tourdates (date, city, state, venue, user_id) VALUES ($1, $2, $3, $4, $5) RETURNING "+tourDateColumns,
 		time.Time(req.Date), req.City, req.State, req.Venue, artistID)
 	td, err := scanTourDate(row)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create tourdate")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to create tourdate")
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, td)
+	httpx.WriteJSON(w, http.StatusCreated, td)
 }
 
-// PatchTourDate applies a partial update. A field omitted from the JSON body
-// is left unchanged; a field present but set to null clears it (only valid
-// for the nullable "state" column). Ownership is not patchable. A tourdate
-// belonging to an artist the caller doesn't represent (and isn't themselves)
-// 404s, same as GetTourDate.
-func (a *App) PatchTourDate(w http.ResponseWriter, r *http.Request) {
+// Patch applies a partial update. A field omitted from the JSON body is left
+// unchanged; a field present but set to null clears it (only valid for the
+// nullable "state" column). Ownership is not patchable. A tourdate belonging
+// to an artist the caller doesn't represent (and isn't themselves) 404s,
+// same as Get.
+func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(mux.Vars(r)["id"])
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid id")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	caller := userFromContext(r.Context())
-	accessibleIDs, err := accessibleArtistIDs(r.Context(), a.db, caller.ID)
+	caller := auth.UserFromContext(r.Context())
+	accessibleIDs, err := accessibleArtistIDs(r.Context(), h.DB, caller.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update tourdate")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to update tourdate")
 		return
 	}
 
 	var raw map[string]json.RawMessage
 	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 
@@ -290,7 +283,7 @@ func (a *App) PatchTourDate(w http.ResponseWriter, r *http.Request) {
 	if v, ok := raw["date"]; ok {
 		var d Date
 		if err := json.Unmarshal(v, &d); err != nil {
-			writeError(w, http.StatusBadRequest, "date must be in YYYY-MM-DD format")
+			httpx.WriteError(w, http.StatusBadRequest, "date must be in YYYY-MM-DD format")
 			return
 		}
 		addSet("date", time.Time(d))
@@ -298,7 +291,7 @@ func (a *App) PatchTourDate(w http.ResponseWriter, r *http.Request) {
 	if v, ok := raw["city"]; ok {
 		var s string
 		if err := json.Unmarshal(v, &s); err != nil || s == "" {
-			writeError(w, http.StatusBadRequest, "city must be a non-empty string")
+			httpx.WriteError(w, http.StatusBadRequest, "city must be a non-empty string")
 			return
 		}
 		addSet("city", s)
@@ -309,7 +302,7 @@ func (a *App) PatchTourDate(w http.ResponseWriter, r *http.Request) {
 		} else {
 			var s string
 			if err := json.Unmarshal(v, &s); err != nil {
-				writeError(w, http.StatusBadRequest, "state must be a string or null")
+				httpx.WriteError(w, http.StatusBadRequest, "state must be a string or null")
 				return
 			}
 			addSet("state", s)
@@ -318,14 +311,14 @@ func (a *App) PatchTourDate(w http.ResponseWriter, r *http.Request) {
 	if v, ok := raw["venue"]; ok {
 		var s string
 		if err := json.Unmarshal(v, &s); err != nil || s == "" {
-			writeError(w, http.StatusBadRequest, "venue must be a non-empty string")
+			httpx.WriteError(w, http.StatusBadRequest, "venue must be a non-empty string")
 			return
 		}
 		addSet("venue", s)
 	}
 
 	if len(setClauses) == 0 {
-		writeError(w, http.StatusBadRequest, "no updatable fields provided")
+		httpx.WriteError(w, http.StatusBadRequest, "no updatable fields provided")
 		return
 	}
 
@@ -335,42 +328,42 @@ func (a *App) PatchTourDate(w http.ResponseWriter, r *http.Request) {
 		strings.Join(setClauses, ", "), argPos, argPos+1,
 	)
 
-	row := a.db.QueryRow(r.Context(), query, args...)
+	row := h.DB.QueryRow(r.Context(), query, args...)
 	td, err := scanTourDate(row)
 	if errors.Is(err, pgx.ErrNoRows) {
-		writeError(w, http.StatusNotFound, "tourdate not found")
+		httpx.WriteError(w, http.StatusNotFound, "tourdate not found")
 		return
 	} else if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update tourdate")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to update tourdate")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, td)
+	httpx.WriteJSON(w, http.StatusOK, td)
 }
 
-// DeleteTourDate 404s for a tourdate belonging to an artist the caller
-// doesn't represent (and isn't themselves), same as GetTourDate/PatchTourDate.
-func (a *App) DeleteTourDate(w http.ResponseWriter, r *http.Request) {
+// Delete 404s for a tourdate belonging to an artist the caller doesn't
+// represent (and isn't themselves), same as Get/Patch.
+func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(mux.Vars(r)["id"])
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid id")
+		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	caller := userFromContext(r.Context())
-	accessibleIDs, err := accessibleArtistIDs(r.Context(), a.db, caller.ID)
+	caller := auth.UserFromContext(r.Context())
+	accessibleIDs, err := accessibleArtistIDs(r.Context(), h.DB, caller.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete tourdate")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to delete tourdate")
 		return
 	}
 
-	tag, err := a.db.Exec(r.Context(),
+	tag, err := h.DB.Exec(r.Context(),
 		"DELETE FROM tourdates WHERE id = $1 AND user_id = ANY($2::uuid[])", id, accessibleIDs)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete tourdate")
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to delete tourdate")
 		return
 	}
 	if tag.RowsAffected() == 0 {
-		writeError(w, http.StatusNotFound, "tourdate not found")
+		httpx.WriteError(w, http.StatusNotFound, "tourdate not found")
 		return
 	}
 

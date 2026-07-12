@@ -1,4 +1,4 @@
-package main
+package db
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"github.com/joho/godotenv"
 )
 
-func connectDB(ctx context.Context) *pgxpool.Pool {
+func Connect(ctx context.Context) *pgxpool.Pool {
 	if err := godotenv.Load(); err != nil {
 		log.Println("no .env file found, relying on process environment")
 	}
