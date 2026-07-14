@@ -17,23 +17,38 @@
 
 		<form method="POST" class="login-form">
 			<label>
+				<span>Name</span>
+				<input type="text" name="name" autocomplete="name" required />
+			</label>
+			<label>
 				<span>Email</span>
 				<input type="email" name="email" autocomplete="email" required />
 			</label>
 			<label>
 				<span>Password</span>
-				<input type="password" name="password" autocomplete="current-password" required />
+				<input type="password" name="password" autocomplete="new-password" required />
+			</label>
+			<label>
+				<span>Account type</span>
+				<select name="user_type" required>
+					<option value="" disabled selected>Choose one</option>
+					<option value="ARTIST">Artist</option>
+					<option value="MANAGER">Manager</option>
+					<option value="AGENT">Agent</option>
+					<option value="CREW">Crew</option>
+					<option value="LABEL">Label</option>
+				</select>
 			</label>
 
 			{#if form?.error}
 				<p class="error">{form.error}</p>
 			{/if}
 
-			<button type="submit">Log in</button>
+			<button type="submit">Sign up</button>
 		</form>
 
 		<p class="switch">
-			No account yet? <a href={resolve('/sign-up')}>Sign up</a>
+			Already have an account? <a href={resolve('/login')}>Log in</a>
 		</p>
 	</div>
 </div>
@@ -123,7 +138,8 @@
 		color: #9d9dac;
 	}
 
-	input {
+	input,
+	select {
 		font: inherit;
 		padding: 0.65rem 0.75rem;
 		border-radius: 8px;
@@ -136,7 +152,13 @@
 			background 0.15s ease;
 	}
 
-	input:focus {
+	select option {
+		background: #14141c;
+		color: #e7e7ee;
+	}
+
+	input:focus,
+	select:focus {
 		outline: none;
 		border-color: #a78bfa;
 		box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.2);

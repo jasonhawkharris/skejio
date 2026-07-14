@@ -18,7 +18,7 @@ func TestMain(m *testing.M) { testutil.Run(m) }
 func TestCreateUser(t *testing.T) {
 	testutil.TruncateTables(t)
 
-	rec := testutil.DoRequest(http.MethodPost, "/users", `{"name":"Jason Harris","email":"jason@example.com","password":"password123","user_type":"MANAGER"}`)
+	rec := testutil.DoRequest(http.MethodPost, "/sign-up", `{"name":"Jason Harris","email":"jason@example.com","password":"password123","user_type":"MANAGER"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -49,7 +49,7 @@ func TestCreateUser_MissingFields(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			rec := testutil.DoRequest(http.MethodPost, "/users", c.body)
+			rec := testutil.DoRequest(http.MethodPost, "/sign-up", c.body)
 			if rec.Code != http.StatusBadRequest {
 				t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 			}
@@ -60,7 +60,7 @@ func TestCreateUser_MissingFields(t *testing.T) {
 func TestCreateUser_InvalidUserType(t *testing.T) {
 	testutil.TruncateTables(t)
 
-	rec := testutil.DoRequest(http.MethodPost, "/users", `{"name":"Jason Harris","email":"jason@example.com","password":"password123","user_type":"WIZARD"}`)
+	rec := testutil.DoRequest(http.MethodPost, "/sign-up", `{"name":"Jason Harris","email":"jason@example.com","password":"password123","user_type":"WIZARD"}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -70,7 +70,7 @@ func TestCreateUser_DuplicateEmail(t *testing.T) {
 	testutil.TruncateTables(t)
 	testutil.CreateTestUserViaAPI(t, "dup@example.com")
 
-	rec := testutil.DoRequest(http.MethodPost, "/users", `{"name":"Someone Else","email":"dup@example.com","password":"password123","user_type":"ARTIST"}`)
+	rec := testutil.DoRequest(http.MethodPost, "/sign-up", `{"name":"Someone Else","email":"dup@example.com","password":"password123","user_type":"ARTIST"}`)
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -79,7 +79,7 @@ func TestCreateUser_DuplicateEmail(t *testing.T) {
 func TestCreateUser_InvalidJSON(t *testing.T) {
 	testutil.TruncateTables(t)
 
-	rec := testutil.DoRequest(http.MethodPost, "/users", `not json`)
+	rec := testutil.DoRequest(http.MethodPost, "/sign-up", `not json`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}

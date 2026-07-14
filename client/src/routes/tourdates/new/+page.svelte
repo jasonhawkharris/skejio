@@ -1,45 +1,61 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
-	import type { ActionData } from './$types';
+	import type { ActionData, PageData } from './$types';
 
-	let { form }: { form: ActionData } = $props();
+	let { data, form }: { data: PageData; form: ActionData } = $props();
 </script>
 
-<div class="login-page">
+<div class="page">
 	<div class="glow glow-a"></div>
 	<div class="glow glow-b"></div>
 
-	<div class="login-card">
-		<div class="brand">
-			<h1>Skejio</h1>
-			<p class="tagline">Organize your tour!</p>
-		</div>
+	<div class="card">
+		<h1>New tourdate</h1>
 
-		<form method="POST" class="login-form">
+		<form method="POST" class="new-form">
+			{#if data.artists.length > 0}
+				<label>
+					<span>Artist</span>
+					<select name="artist_id" required>
+						<option value="" disabled selected>Choose an artist</option>
+						{#each data.artists as artist (artist.user_id)}
+							<option value={artist.user_id}>{artist.name}</option>
+						{/each}
+					</select>
+				</label>
+			{/if}
+
 			<label>
-				<span>Email</span>
-				<input type="email" name="email" autocomplete="email" required />
+				<span>Date</span>
+				<input type="date" name="date" required />
 			</label>
 			<label>
-				<span>Password</span>
-				<input type="password" name="password" autocomplete="current-password" required />
+				<span>City</span>
+				<input type="text" name="city" required />
+			</label>
+			<label>
+				<span>State</span>
+				<input type="text" name="state" />
+			</label>
+			<label>
+				<span>Venue</span>
+				<input type="text" name="venue" required />
 			</label>
 
 			{#if form?.error}
 				<p class="error">{form.error}</p>
 			{/if}
 
-			<button type="submit">Log in</button>
+			<div class="buttons">
+				<button type="submit">Create</button>
+				<a href={resolve('/tourdates')}>Cancel</a>
+			</div>
 		</form>
-
-		<p class="switch">
-			No account yet? <a href={resolve('/sign-up')}>Sign up</a>
-		</p>
 	</div>
 </div>
 
 <style>
-	.login-page {
+	.page {
 		position: relative;
 		overflow: hidden;
 		min-height: 100dvh;
@@ -74,7 +90,7 @@
 		background: radial-gradient(circle, rgba(56, 189, 248, 0.22), transparent 70%);
 	}
 
-	.login-card {
+	.card {
 		position: relative;
 		z-index: 1;
 		width: 100%;
@@ -87,28 +103,15 @@
 		padding: 2.5rem 2rem;
 	}
 
-	.brand {
+	.card h1 {
 		text-align: center;
-		margin-bottom: 2rem;
-	}
-
-	.brand h1 {
-		font-size: 1.75rem;
-		font-weight: 700;
+		font-size: 1.5rem;
 		letter-spacing: -0.02em;
-		background: linear-gradient(135deg, #ffffff 30%, #a78bfa 100%);
-		background-clip: text;
-		-webkit-background-clip: text;
-		color: transparent;
+		margin: 0 0 2rem;
+		color: #f4f4f8;
 	}
 
-	.tagline {
-		margin: 0.25rem 0 0;
-		color: #a1a1ae;
-		font-size: 0.925rem;
-	}
-
-	.login-form {
+	.new-form {
 		display: flex;
 		flex-direction: column;
 		gap: 1.1rem;
@@ -123,7 +126,8 @@
 		color: #9d9dac;
 	}
 
-	input {
+	input,
+	select {
 		font: inherit;
 		padding: 0.65rem 0.75rem;
 		border-radius: 8px;
@@ -136,15 +140,28 @@
 			background 0.15s ease;
 	}
 
-	input:focus {
+	select option {
+		background: #14141c;
+		color: #e7e7ee;
+	}
+
+	input:focus,
+	select:focus {
 		outline: none;
 		border-color: #a78bfa;
 		box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.2);
 		background: rgba(255, 255, 255, 0.07);
 	}
 
-	button {
+	.buttons {
 		margin-top: 0.5rem;
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+	}
+
+	button {
+		flex: 1;
 		padding: 0.7rem 1rem;
 		border: none;
 		border-radius: 8px;
@@ -164,6 +181,17 @@
 		box-shadow: 0 16px 34px -8px rgba(139, 92, 246, 0.65);
 	}
 
+	.buttons a {
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: #9d9dac;
+		text-decoration: none;
+	}
+
+	.buttons a:hover {
+		color: #e7e7ee;
+	}
+
 	.error {
 		margin: 0;
 		padding: 0.6rem 0.75rem;
@@ -171,22 +199,5 @@
 		background: rgba(220, 38, 38, 0.15);
 		color: #f87171;
 		font-size: 0.85rem;
-	}
-
-	.switch {
-		margin: 1.5rem 0 0;
-		text-align: center;
-		font-size: 0.85rem;
-		color: #9d9dac;
-	}
-
-	.switch a {
-		color: #a78bfa;
-		font-weight: 600;
-		text-decoration: none;
-	}
-
-	.switch a:hover {
-		text-decoration: underline;
 	}
 </style>

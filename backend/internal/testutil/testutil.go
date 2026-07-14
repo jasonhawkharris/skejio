@@ -77,7 +77,7 @@ func TruncateTables(t *testing.T) {
 	}
 }
 
-// DoRequest issues an unauthenticated request (for /login, /users, /test, /).
+// DoRequest issues an unauthenticated request (for /login, /sign-up, /test, /).
 func DoRequest(method, path, body string) *httptest.ResponseRecorder {
 	return DoAuthRequest(method, path, body, "")
 }
@@ -95,7 +95,7 @@ func DoAuthRequest(method, path, body, token string) *httptest.ResponseRecorder 
 
 func CreateTestUserViaAPI(t *testing.T, email string) users.User {
 	t.Helper()
-	rec := DoRequest(http.MethodPost, "/users", fmt.Sprintf(
+	rec := DoRequest(http.MethodPost, "/sign-up", fmt.Sprintf(
 		`{"name":"Test User","email":%q,"password":%q,"user_type":"ARTIST"}`, email, TestUserPassword))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("failed to create user: status %d, body %s", rec.Code, rec.Body.String())
@@ -112,7 +112,7 @@ func CreateTestUserViaAPI(t *testing.T, email string) users.User {
 func CreateTestUserOfType(t *testing.T, userType string) (users.User, string) {
 	t.Helper()
 	email := fmt.Sprintf("%s@example.com", uuid.NewString())
-	rec := DoRequest(http.MethodPost, "/users", fmt.Sprintf(
+	rec := DoRequest(http.MethodPost, "/sign-up", fmt.Sprintf(
 		`{"name":"Test User","email":%q,"password":%q,"user_type":%q}`, email, TestUserPassword, userType))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("failed to create %s user: status %d, body %s", userType, rec.Code, rec.Body.String())
@@ -140,7 +140,7 @@ func LoginTestUser(t *testing.T, email, password string) string {
 	return resp.Token
 }
 
-// CreateAndLoginTestUser creates a user via the real /users endpoint and logs
+// CreateAndLoginTestUser creates a user via the real /sign-up endpoint and logs
 // them in via the real /login endpoint, returning the user and their session
 // token for use in Authorization headers.
 func CreateAndLoginTestUser(t *testing.T) (users.User, string) {

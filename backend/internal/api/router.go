@@ -43,7 +43,7 @@ func NewRouter(authH *auth.Handler, tourdatesH *tourdates.Handler, usersH *users
 	logoutRouter.Use(auth.Middleware(authH.DB))
 	logoutRouter.HandleFunc("", authH.Logout).Methods(http.MethodPost)
 
-	r.HandleFunc("/users", usersH.Create).Methods(http.MethodPost)
+	r.HandleFunc("/sign-up", usersH.Create).Methods(http.MethodPost)
 
 	usersByID := r.PathPrefix("/users").Subrouter()
 	usersByID.Use(auth.Middleware(authH.DB))
