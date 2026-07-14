@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"skejio/backend/internal/db"
 	"skejio/backend/internal/httpx"
 	"skejio/backend/internal/tourdates"
 )
@@ -60,18 +61,8 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "failed to list expenses")
 		return
 	}
-	defer rows.Close()
-
-	expenseList := []Expense{}
-	for rows.Next() {
-		e, err := scanExpense(rows)
-		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "failed to read expenses")
-			return
-		}
-		expenseList = append(expenseList, e)
-	}
-	if err := rows.Err(); err != nil {
+	expenseList, err := db.ScanAll(rows, scanExpense)
+	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "failed to read expenses")
 		return
 	}

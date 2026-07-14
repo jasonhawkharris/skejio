@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"skejio/backend/internal/auth"
+	"skejio/backend/internal/db"
 	"skejio/backend/internal/httpx"
 )
 
@@ -50,21 +51,7 @@ func (s ScopedResource[T]) List(ctx context.Context, accessibleIDs []string, art
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	results := []T{}
-	for rows.Next() {
-		t, err := s.Scan(rows)
-		if err != nil {
-			return nil, err
-		}
-		results = append(results, t)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return results, nil
+	return db.ScanAll(rows, s.Scan)
 }
 
 // Get returns the row with the given id, if owned by an artist in

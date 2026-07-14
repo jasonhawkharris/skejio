@@ -1,8 +1,10 @@
 package representatives
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"skejio/backend/internal/auth"
+	"skejio/backend/internal/db"
 	"skejio/backend/internal/dberr"
 	"skejio/backend/internal/httpx"
 )
@@ -97,6 +100,30 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// listRelated returns the users on the other side of an artist_representatives
+// relationship from callerID: matchColumn is the column callerID appears in
+// ("artist_id" from an artist's point of view, "representative_id" from a
+// representative's), and otherColumn (the other one) identifies the joined
+// user to return.
+func listRelated(ctx context.Context, pool *pgxpool.Pool, callerID uuid.UUID, matchColumn, otherColumn string) ([]RepresentedUser, error) {
+	query := fmt.Sprintf(`
+		SELECT ar.id, u.id, u.name, u.email, u.user_type, ar.created_at
+		FROM artist_representatives ar
+		JOIN users u ON u.id = ar.%s
+		WHERE ar.%s = $1
+		ORDER BY ar.created_at`, otherColumn, matchColumn)
+
+	rows, err := pool.Query(ctx, query, callerID)
+	if err != nil {
+		return nil, err
+	}
+	return db.ScanAll(rows, func(row pgx.Row) (RepresentedUser, error) {
+		var ru RepresentedUser
+		err := row.Scan(&ru.RelationshipID, &ru.UserID, &ru.Name, &ru.Email, &ru.UserType, &ru.CreatedAt)
+		return ru, err
+	})
+}
+
 // ListRepresentatives returns the representatives the caller (an artist) has
 // granted access to.
 func (h *Handler) ListRepresentatives(w http.ResponseWriter, r *http.Request) {
@@ -106,29 +133,9 @@ func (h *Handler) ListRepresentatives(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := h.DB.Query(r.Context(), `
-		SELECT ar.id, u.id, u.name, u.email, u.user_type, ar.created_at
-		FROM artist_representatives ar
-		JOIN users u ON u.id = ar.representative_id
-		WHERE ar.artist_id = $1
-		ORDER BY ar.created_at`, caller.ID)
+	representatives, err := listRelated(r.Context(), h.DB, caller.ID, "artist_id", "representative_id")
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "failed to list representatives")
-		return
-	}
-	defer rows.Close()
-
-	representatives := []RepresentedUser{}
-	for rows.Next() {
-		var ru RepresentedUser
-		if err := rows.Scan(&ru.RelationshipID, &ru.UserID, &ru.Name, &ru.Email, &ru.UserType, &ru.CreatedAt); err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "failed to read representatives")
-			return
-		}
-		representatives = append(representatives, ru)
-	}
-	if err := rows.Err(); err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to read representatives")
 		return
 	}
 
@@ -144,29 +151,9 @@ func (h *Handler) ListArtists(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := h.DB.Query(r.Context(), `
-		SELECT ar.id, u.id, u.name, u.email, u.user_type, ar.created_at
-		FROM artist_representatives ar
-		JOIN users u ON u.id = ar.artist_id
-		WHERE ar.representative_id = $1
-		ORDER BY ar.created_at`, caller.ID)
+	artists, err := listRelated(r.Context(), h.DB, caller.ID, "representative_id", "artist_id")
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "failed to list represented artists")
-		return
-	}
-	defer rows.Close()
-
-	artists := []RepresentedUser{}
-	for rows.Next() {
-		var ru RepresentedUser
-		if err := rows.Scan(&ru.RelationshipID, &ru.UserID, &ru.Name, &ru.Email, &ru.UserType, &ru.CreatedAt); err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "failed to read represented artists")
-			return
-		}
-		artists = append(artists, ru)
-	}
-	if err := rows.Err(); err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to read represented artists")
 		return
 	}
 
