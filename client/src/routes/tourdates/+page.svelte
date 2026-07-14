@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import type { TourDate } from '$lib/types';
 	import type { PageData } from './$types';
@@ -43,13 +44,26 @@
 		</thead>
 		<tbody>
 			{#each tourdates as td (td.id)}
-				<tr>
+				<tr
+					class="row-link"
+					tabindex="0"
+					role="link"
+					aria-label={`View tourdate in ${td.city} on ${td.date}`}
+					onclick={() => goto(resolve('/tourdates/[id]', { id: td.id }))}
+					onkeydown={(e) => {
+						if (e.key === 'Enter') goto(resolve('/tourdates/[id]', { id: td.id }));
+					}}
+				>
 					<td>{td.date}</td>
 					<td>{td.city}</td>
 					<td>{td.state ?? ''}</td>
 					<td>{td.venue}</td>
 					<td class="actions">
-						<a class="edit-link" href={resolve('/tourdates/[id]/edit', { id: td.id })}>Edit</a>
+						<a
+							class="edit-link"
+							href={resolve('/tourdates/[id]/edit', { id: td.id })}
+							onclick={(e) => e.stopPropagation()}>Edit</a
+						>
 					</td>
 				</tr>
 			{/each}
@@ -254,8 +268,17 @@
 		border-bottom: none;
 	}
 
-	tbody tr:hover td {
-		background: rgba(255, 255, 255, 0.02);
+	.row-link {
+		cursor: pointer;
+	}
+
+	.row-link:hover td {
+		background: rgba(255, 255, 255, 0.04);
+	}
+
+	.row-link:focus-visible {
+		outline: 2px solid #a78bfa;
+		outline-offset: -2px;
 	}
 
 	.actions {
