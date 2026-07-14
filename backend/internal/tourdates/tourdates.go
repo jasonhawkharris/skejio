@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gorilla/mux"
 	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -42,13 +42,19 @@ func (d *Date) UnmarshalJSON(data []byte) error {
 }
 
 type TourDate struct {
-	ID        uuid.UUID `json:"id"`
-	Date      Date      `json:"date"`
-	City      string    `json:"city"`
-	State     *string   `json:"state"`
-	Venue     string    `json:"venue"`
-	UserID    uuid.UUID `json:"user_id"`
-	CreatedAt time.Time `json:"created_at"`
+	ID             uuid.UUID `json:"id"`
+	Date           Date      `json:"date"`
+	City           string    `json:"city"`
+	State          *string   `json:"state"`
+	Venue          string    `json:"venue"`
+	POCName        *string   `json:"poc_name"`
+	POCNumber      *string   `json:"poc_number"`
+	POCEmail       *string   `json:"poc_email"`
+	PromoterName   *string   `json:"promoter_name"`
+	PromoterNumber *string   `json:"promoter_number"`
+	PromoterEmail  *string   `json:"promoter_email"`
+	UserID         uuid.UUID `json:"user_id"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 type Handler struct {
@@ -58,12 +64,17 @@ type Handler struct {
 func scanTourDate(row pgx.Row) (TourDate, error) {
 	var td TourDate
 	var d time.Time
-	err := row.Scan(&td.ID, &d, &td.City, &td.State, &td.Venue, &td.UserID, &td.CreatedAt)
+	err := row.Scan(
+		&td.ID, &d, &td.City, &td.State, &td.Venue,
+		&td.POCName, &td.POCNumber, &td.POCEmail,
+		&td.PromoterName, &td.PromoterNumber, &td.PromoterEmail,
+		&td.UserID, &td.CreatedAt,
+	)
 	td.Date = Date(d)
 	return td, err
 }
 
-const tourDateColumns = "id, date, city, state, venue, user_id, created_at"
+const tourDateColumns = "id, date, city, state, venue, poc_name, poc_number, poc_email, promoter_name, promoter_number, promoter_email, user_id, created_at"
 
 // accessibleArtistIDs returns the set of user ids whose tourdates the caller
 // may access: their own id, plus every artist they represent (if any).
@@ -189,11 +200,17 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 type createTourDateRequest struct {
-	Date     Date      `json:"date"`
-	City     string    `json:"city"`
-	State    *string   `json:"state"`
-	Venue    string    `json:"venue"`
-	ArtistID uuid.UUID `json:"artist_id"`
+	Date           Date      `json:"date"`
+	City           string    `json:"city"`
+	State          *string   `json:"state"`
+	Venue          string    `json:"venue"`
+	POCName        *string   `json:"poc_name"`
+	POCNumber      *string   `json:"poc_number"`
+	POCEmail       *string   `json:"poc_email"`
+	PromoterName   *string   `json:"promoter_name"`
+	PromoterNumber *string   `json:"promoter_number"`
+	PromoterEmail  *string   `json:"promoter_email"`
+	ArtistID       uuid.UUID `json:"artist_id"`
 }
 
 // Create assigns ownership to artist_id if given - which must be the caller
@@ -235,8 +252,12 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	row := h.DB.QueryRow(r.Context(),
-		"INSERT INTO tourdates (date, city, state, venue, user_id) VALUES ($1, $2, $3, $4, $5) RETURNING "+tourDateColumns,
-		time.Time(req.Date), req.City, req.State, req.Venue, artistID)
+		"INSERT INTO tourdates (date, city, state, venue, poc_name, poc_number, poc_email, promoter_name, promoter_number, promoter_email, user_id) "+
+			"VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING "+tourDateColumns,
+		time.Time(req.Date), req.City, req.State, req.Venue,
+		req.POCName, req.POCNumber, req.POCEmail,
+		req.PromoterName, req.PromoterNumber, req.PromoterEmail,
+		artistID)
 	td, err := scanTourDate(row)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "failed to create tourdate")
@@ -248,9 +269,9 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 
 // Patch applies a partial update. A field omitted from the JSON body is left
 // unchanged; a field present but set to null clears it (only valid for the
-// nullable "state" column). Ownership is not patchable. A tourdate belonging
-// to an artist the caller doesn't represent (and isn't themselves) 404s,
-// same as Get.
+// nullable "state", "poc_*", and "promoter_*" columns). Ownership is not
+// patchable. A tourdate belonging to an artist the caller doesn't represent
+// (and isn't themselves) 404s, same as Get.
 func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(mux.Vars(r)["id"])
 	if err != nil {
@@ -296,18 +317,6 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 		}
 		addSet("city", s)
 	}
-	if v, ok := raw["state"]; ok {
-		if string(v) == "null" {
-			addSet("state", nil)
-		} else {
-			var s string
-			if err := json.Unmarshal(v, &s); err != nil {
-				httpx.WriteError(w, http.StatusBadRequest, "state must be a string or null")
-				return
-			}
-			addSet("state", s)
-		}
-	}
 	if v, ok := raw["venue"]; ok {
 		var s string
 		if err := json.Unmarshal(v, &s); err != nil || s == "" {
@@ -315,6 +324,30 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		addSet("venue", s)
+	}
+
+	// state and the POC/promoter contact fields are all nullable TEXT
+	// columns with the same partial-update semantics: omitted leaves the
+	// column unchanged, explicit null clears it.
+	nullableStringColumns := []string{
+		"state", "poc_name", "poc_number", "poc_email",
+		"promoter_name", "promoter_number", "promoter_email",
+	}
+	for _, column := range nullableStringColumns {
+		v, ok := raw[column]
+		if !ok {
+			continue
+		}
+		if string(v) == "null" {
+			addSet(column, nil)
+			continue
+		}
+		var s string
+		if err := json.Unmarshal(v, &s); err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, column+" must be a string or null")
+			return
+		}
+		addSet(column, s)
 	}
 
 	if len(setClauses) == 0 {

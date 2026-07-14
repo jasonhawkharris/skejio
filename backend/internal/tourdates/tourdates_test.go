@@ -51,6 +51,43 @@ func TestCreateTourDate_NullableState(t *testing.T) {
 	}
 }
 
+func TestCreateTourDate_PocAndPromoterFields(t *testing.T) {
+	testutil.TruncateTables(t)
+	_, token := testutil.CreateAndLoginTestUser(t)
+
+	rec := testutil.DoAuthRequest(http.MethodPost, "/tourdates", `{
+		"date":"2026-09-15","city":"Austin","venue":"Moody Center",
+		"poc_name":"Jamie Rivera","poc_number":"555-0100","poc_email":"jamie@example.com",
+		"promoter_name":"Live Nation","promoter_number":"555-0200","promoter_email":"promo@example.com"
+	}`, token)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var td tourdates.TourDate
+	if err := json.Unmarshal(rec.Body.Bytes(), &td); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if td.POCName == nil || *td.POCName != "Jamie Rivera" {
+		t.Fatalf("expected poc_name to be set, got %+v", td.POCName)
+	}
+	if td.POCNumber == nil || *td.POCNumber != "555-0100" {
+		t.Fatalf("expected poc_number to be set, got %+v", td.POCNumber)
+	}
+	if td.POCEmail == nil || *td.POCEmail != "jamie@example.com" {
+		t.Fatalf("expected poc_email to be set, got %+v", td.POCEmail)
+	}
+	if td.PromoterName == nil || *td.PromoterName != "Live Nation" {
+		t.Fatalf("expected promoter_name to be set, got %+v", td.PromoterName)
+	}
+	if td.PromoterNumber == nil || *td.PromoterNumber != "555-0200" {
+		t.Fatalf("expected promoter_number to be set, got %+v", td.PromoterNumber)
+	}
+	if td.PromoterEmail == nil || *td.PromoterEmail != "promo@example.com" {
+		t.Fatalf("expected promoter_email to be set, got %+v", td.PromoterEmail)
+	}
+}
+
 func TestCreateTourDate_MissingRequiredFields(t *testing.T) {
 	testutil.TruncateTables(t)
 	_, token := testutil.CreateAndLoginTestUser(t)
@@ -225,6 +262,40 @@ func TestPatchTourDate_ClearStateToNull(t *testing.T) {
 	json.Unmarshal(rec.Body.Bytes(), &td)
 	if td.State != nil {
 		t.Fatalf("expected state to be cleared, got %v", *td.State)
+	}
+}
+
+func TestPatchTourDate_SetAndClearPocAndPromoterFields(t *testing.T) {
+	testutil.TruncateTables(t)
+	_, token := testutil.CreateAndLoginTestUser(t)
+	created := testutil.CreateTestTourDate(t, token, `{"date":"2026-09-15","city":"Austin","venue":"Moody Center"}`)
+
+	rec := testutil.DoAuthRequest(http.MethodPatch, "/tourdates/"+created.ID.String(), `{
+		"poc_name":"Jamie Rivera","poc_number":"555-0100","poc_email":"jamie@example.com",
+		"promoter_name":"Live Nation","promoter_number":"555-0200","promoter_email":"promo@example.com"
+	}`, token)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var td tourdates.TourDate
+	json.Unmarshal(rec.Body.Bytes(), &td)
+	if td.POCName == nil || *td.POCName != "Jamie Rivera" || td.PromoterEmail == nil || *td.PromoterEmail != "promo@example.com" {
+		t.Fatalf("expected poc/promoter fields to be set, got %+v", td)
+	}
+
+	rec = testutil.DoAuthRequest(http.MethodPatch, "/tourdates/"+created.ID.String(), `{"poc_name":null,"promoter_email":null}`, token)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	json.Unmarshal(rec.Body.Bytes(), &td)
+	if td.POCName != nil {
+		t.Fatalf("expected poc_name to be cleared, got %v", *td.POCName)
+	}
+	if td.PromoterEmail != nil {
+		t.Fatalf("expected promoter_email to be cleared, got %v", *td.PromoterEmail)
+	}
+	if td.POCNumber == nil || *td.POCNumber != "555-0100" {
+		t.Fatalf("expected untouched poc_number to survive, got %+v", td.POCNumber)
 	}
 }
 
