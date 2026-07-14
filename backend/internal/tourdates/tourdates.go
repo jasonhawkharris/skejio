@@ -114,6 +114,41 @@ func ContainsID(ids []string, id uuid.UUID) bool {
 	return false
 }
 
+// AccessibleTourDateID parses the "id" route param and confirms the caller
+// may access that tourdate (their own, or one they represent) - 404ing
+// otherwise, so as not to reveal whether the tourdate exists. Shared by any
+// resource nested under /tourdates/{id}/... (financials, expenses).
+func AccessibleTourDateID(w http.ResponseWriter, r *http.Request, db *pgxpool.Pool) (uuid.UUID, bool) {
+	tourDateID, err := uuid.Parse(mux.Vars(r)["id"])
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
+		return uuid.Nil, false
+	}
+
+	caller := auth.UserFromContext(r.Context())
+	accessibleIDs, err := AccessibleArtistIDs(r.Context(), db, caller.ID)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to look up tourdate")
+		return uuid.Nil, false
+	}
+
+	var ownerID uuid.UUID
+	err = db.QueryRow(r.Context(), "SELECT user_id FROM tourdates WHERE id = $1", tourDateID).Scan(&ownerID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		httpx.WriteError(w, http.StatusNotFound, "tourdate not found")
+		return uuid.Nil, false
+	} else if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to look up tourdate")
+		return uuid.Nil, false
+	}
+	if !ContainsID(accessibleIDs, ownerID) {
+		httpx.WriteError(w, http.StatusNotFound, "tourdate not found")
+		return uuid.Nil, false
+	}
+
+	return tourDateID, true
+}
+
 // resolveOwnedFK validates a nullable owned-FK request field for Create:
 // field is the JSON field name (e.g. "tour_id"), table is the referenced
 // table (e.g. "tours") - which must have a user_id column. id of uuid.Nil
@@ -194,16 +229,19 @@ func (h *Handler) applyOwnedFKPatch(
 	return true
 }
 
+func (h *Handler) resource() ScopedResource[TourDate] {
+	return ScopedResource[TourDate]{DB: h.DB, Table: "tourdates", Columns: tourDateColumns, OrderBy: "date", Scan: scanTourDate}
+}
+
 // List returns the caller's own tourdates plus every tourdate belonging to
 // an artist they represent, merged into one list ordered by date. If an
 // "artist_id" query param is given, the list is narrowed to just that
 // artist - who must be the caller or someone they represent, else a 404 (so
-// as not to reveal whether that artist_id exists at all).
+// as not to reveal whether that artist_id exists at all). "tour_id" and
+// "rider_id" query params further narrow the list, if given.
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	caller := auth.UserFromContext(r.Context())
-	accessibleIDs, err := AccessibleArtistIDs(r.Context(), h.DB, caller.ID)
-	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to list tourdates")
+	accessibleIDs, artistID, ok := ResolveListScope(w, r, h.DB, "tourdate")
+	if !ok {
 		return
 	}
 
@@ -227,80 +265,22 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		riderIDFilter = &parsed
 	}
 
-	var rows pgx.Rows
-	if artistIDParam := r.URL.Query().Get("artist_id"); artistIDParam != "" {
-		artistID, err := uuid.Parse(artistIDParam)
-		if err != nil {
-			httpx.WriteError(w, http.StatusBadRequest, "artist_id must be a valid UUID")
-			return
-		}
-		if !ContainsID(accessibleIDs, artistID) {
-			httpx.WriteError(w, http.StatusNotFound, "artist not found")
-			return
-		}
-		rows, err = h.DB.Query(r.Context(),
-			"SELECT "+tourDateColumns+" FROM tourdates WHERE user_id = $1 AND ($2::uuid IS NULL OR tour_id = $2) AND ($3::uuid IS NULL OR rider_id = $3) ORDER BY date",
-			artistID, tourIDFilter, riderIDFilter)
-		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "failed to list tourdates")
-			return
-		}
-	} else {
-		rows, err = h.DB.Query(r.Context(),
-			"SELECT "+tourDateColumns+" FROM tourdates WHERE user_id = ANY($1::uuid[]) AND ($2::uuid IS NULL OR tour_id = $2) AND ($3::uuid IS NULL OR rider_id = $3) ORDER BY date",
-			accessibleIDs, tourIDFilter, riderIDFilter)
-		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "failed to list tourdates")
-			return
-		}
-	}
-	defer rows.Close()
-
-	tourdates := []TourDate{}
-	for rows.Next() {
-		td, err := scanTourDate(rows)
-		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "failed to read tourdates")
-			return
-		}
-		tourdates = append(tourdates, td)
-	}
-	if err := rows.Err(); err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to read tourdates")
+	tourdateList, err := h.resource().List(r.Context(), accessibleIDs, artistID,
+		" AND ($2::uuid IS NULL OR tour_id = $2) AND ($3::uuid IS NULL OR rider_id = $3)",
+		tourIDFilter, riderIDFilter)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to list tourdates")
 		return
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, tourdates)
+	httpx.WriteJSON(w, http.StatusOK, tourdateList)
 }
 
 // Get 404s (rather than 403s) when the tourdate belongs to an artist the
 // caller doesn't represent (and isn't themselves), so as not to reveal that
 // it exists.
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
-	id, err := uuid.Parse(mux.Vars(r)["id"])
-	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
-		return
-	}
-	caller := auth.UserFromContext(r.Context())
-	accessibleIDs, err := AccessibleArtistIDs(r.Context(), h.DB, caller.ID)
-	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to read tourdate")
-		return
-	}
-
-	row := h.DB.QueryRow(r.Context(),
-		"SELECT "+tourDateColumns+" FROM tourdates WHERE id = $1 AND user_id = ANY($2::uuid[])", id, accessibleIDs)
-	td, err := scanTourDate(row)
-	if errors.Is(err, pgx.ErrNoRows) {
-		httpx.WriteError(w, http.StatusNotFound, "tourdate not found")
-		return
-	} else if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to read tourdate")
-		return
-	}
-
-	httpx.WriteJSON(w, http.StatusOK, td)
+	HandleGet(w, r, h.resource(), "tourdate")
 }
 
 type createTourDateRequest struct {
@@ -341,20 +321,9 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	caller := auth.UserFromContext(r.Context())
-	artistID := req.ArtistID
-	if artistID == uuid.Nil {
-		artistID = caller.ID
-	} else if artistID != caller.ID {
-		accessibleIDs, err := AccessibleArtistIDs(r.Context(), h.DB, caller.ID)
-		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "failed to create tourdate")
-			return
-		}
-		if !ContainsID(accessibleIDs, artistID) {
-			httpx.WriteError(w, http.StatusForbidden, "you do not have access to create tourdates for this artist")
-			return
-		}
+	artistID, ok := ResolveCreateOwner(w, r, h.DB, req.ArtistID, "tourdate")
+	if !ok {
+		return
 	}
 
 	tourID, ok := h.resolveOwnedFK(r.Context(), w, "tour_id", "tours", req.TourID, artistID)
@@ -406,15 +375,7 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var setClauses []string
-	var args []any
-	argPos := 1
-
-	addSet := func(column string, value any) {
-		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", column, argPos))
-		args = append(args, value)
-		argPos++
-	}
+	var pb httpx.PatchBuilder
 
 	if v, ok := raw["date"]; ok {
 		var d Date
@@ -422,7 +383,7 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteError(w, http.StatusBadRequest, "date must be in YYYY-MM-DD format")
 			return
 		}
-		addSet("date", time.Time(d))
+		pb.Set("date", time.Time(d))
 	}
 	if v, ok := raw["city"]; ok {
 		var s string
@@ -430,7 +391,7 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteError(w, http.StatusBadRequest, "city must be a non-empty string")
 			return
 		}
-		addSet("city", s)
+		pb.Set("city", s)
 	}
 	if v, ok := raw["venue"]; ok {
 		var s string
@@ -438,15 +399,15 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteError(w, http.StatusBadRequest, "venue must be a non-empty string")
 			return
 		}
-		addSet("venue", s)
+		pb.Set("venue", s)
 	}
 	if v, ok := raw["tour_id"]; ok {
-		if ok := h.applyOwnedFKPatch(r.Context(), w, v, "tour_id", "tours", id, accessibleIDs, addSet); !ok {
+		if ok := h.applyOwnedFKPatch(r.Context(), w, v, "tour_id", "tours", id, accessibleIDs, pb.Set); !ok {
 			return
 		}
 	}
 	if v, ok := raw["rider_id"]; ok {
-		if ok := h.applyOwnedFKPatch(r.Context(), w, v, "rider_id", "riders", id, accessibleIDs, addSet); !ok {
+		if ok := h.applyOwnedFKPatch(r.Context(), w, v, "rider_id", "riders", id, accessibleIDs, pb.Set); !ok {
 			return
 		}
 	}
@@ -464,7 +425,7 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if string(v) == "null" {
-			addSet(column, nil)
+			pb.Set(column, nil)
 			continue
 		}
 		var s string
@@ -472,22 +433,15 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteError(w, http.StatusBadRequest, column+" must be a string or null")
 			return
 		}
-		addSet(column, s)
+		pb.Set(column, s)
 	}
 
-	if len(setClauses) == 0 {
+	if pb.Empty() {
 		httpx.WriteError(w, http.StatusBadRequest, "no updatable fields provided")
 		return
 	}
 
-	args = append(args, id, accessibleIDs)
-	query := fmt.Sprintf(
-		"UPDATE tourdates SET %s WHERE id = $%d AND user_id = ANY($%d::uuid[]) RETURNING "+tourDateColumns,
-		strings.Join(setClauses, ", "), argPos, argPos+1,
-	)
-
-	row := h.DB.QueryRow(r.Context(), query, args...)
-	td, err := scanTourDate(row)
+	td, err := h.resource().Update(r.Context(), &pb, id, accessibleIDs)
 	if errors.Is(err, pgx.ErrNoRows) {
 		httpx.WriteError(w, http.StatusNotFound, "tourdate not found")
 		return
@@ -502,28 +456,5 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 // Delete 404s for a tourdate belonging to an artist the caller doesn't
 // represent (and isn't themselves), same as Get/Patch.
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
-	id, err := uuid.Parse(mux.Vars(r)["id"])
-	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
-		return
-	}
-	caller := auth.UserFromContext(r.Context())
-	accessibleIDs, err := AccessibleArtistIDs(r.Context(), h.DB, caller.ID)
-	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to delete tourdate")
-		return
-	}
-
-	tag, err := h.DB.Exec(r.Context(),
-		"DELETE FROM tourdates WHERE id = $1 AND user_id = ANY($2::uuid[])", id, accessibleIDs)
-	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to delete tourdate")
-		return
-	}
-	if tag.RowsAffected() == 0 {
-		httpx.WriteError(w, http.StatusNotFound, "tourdate not found")
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
+	HandleDelete(w, r, h.resource(), "tourdate")
 }

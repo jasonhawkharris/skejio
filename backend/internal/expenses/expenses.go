@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,7 +12,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"skejio/backend/internal/auth"
 	"skejio/backend/internal/httpx"
 	"skejio/backend/internal/tourdates"
 )
@@ -49,44 +47,9 @@ func scanExpense(row pgx.Row) (Expense, error) {
 	return e, err
 }
 
-// accessibleTourDateID parses the "id" route param (the tourdate) and
-// confirms the caller may access it (their own, or one they represent) -
-// 404ing otherwise, same as tourdates itself, so as not to reveal whether
-// the tourdate exists.
-func accessibleTourDateID(w http.ResponseWriter, r *http.Request, db *pgxpool.Pool) (uuid.UUID, bool) {
-	tourDateID, err := uuid.Parse(mux.Vars(r)["id"])
-	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
-		return uuid.Nil, false
-	}
-
-	caller := auth.UserFromContext(r.Context())
-	accessibleIDs, err := tourdates.AccessibleArtistIDs(r.Context(), db, caller.ID)
-	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to look up tourdate")
-		return uuid.Nil, false
-	}
-
-	var ownerID uuid.UUID
-	err = db.QueryRow(r.Context(), "SELECT user_id FROM tourdates WHERE id = $1", tourDateID).Scan(&ownerID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		httpx.WriteError(w, http.StatusNotFound, "tourdate not found")
-		return uuid.Nil, false
-	} else if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to look up tourdate")
-		return uuid.Nil, false
-	}
-	if !tourdates.ContainsID(accessibleIDs, ownerID) {
-		httpx.WriteError(w, http.StatusNotFound, "tourdate not found")
-		return uuid.Nil, false
-	}
-
-	return tourDateID, true
-}
-
 // List returns every expense recorded against a tourdate, oldest first.
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	tourDateID, ok := accessibleTourDateID(w, r, h.DB)
+	tourDateID, ok := tourdates.AccessibleTourDateID(w, r, h.DB)
 	if !ok {
 		return
 	}
@@ -119,7 +82,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 // Get returns a single expense. 404s if the tourdate isn't accessible, or
 // the expense doesn't belong to it.
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
-	tourDateID, ok := accessibleTourDateID(w, r, h.DB)
+	tourDateID, ok := tourdates.AccessibleTourDateID(w, r, h.DB)
 	if !ok {
 		return
 	}
@@ -151,7 +114,7 @@ type createExpenseRequest struct {
 
 // Create adds a new expense line item to a tourdate.
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
-	tourDateID, ok := accessibleTourDateID(w, r, h.DB)
+	tourDateID, ok := tourdates.AccessibleTourDateID(w, r, h.DB)
 	if !ok {
 		return
 	}
@@ -187,7 +150,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 // null clears it; "category" and "amount" are required columns, so an
 // explicit null for either is rejected rather than silently ignored.
 func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
-	tourDateID, ok := accessibleTourDateID(w, r, h.DB)
+	tourDateID, ok := tourdates.AccessibleTourDateID(w, r, h.DB)
 	if !ok {
 		return
 	}
@@ -203,15 +166,7 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var setClauses []string
-	var args []any
-	argPos := 1
-
-	addSet := func(column string, value any) {
-		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", column, argPos))
-		args = append(args, value)
-		argPos++
-	}
+	var pb httpx.PatchBuilder
 
 	if v, ok := raw["category"]; ok {
 		if string(v) == "null" {
@@ -223,7 +178,7 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteError(w, http.StatusBadRequest, "category must be one of TRAVEL, LODGING, CREW, GEAR, OTHER")
 			return
 		}
-		addSet("category", s)
+		pb.Set("category", s)
 	}
 	if v, ok := raw["amount"]; ok {
 		if string(v) == "null" {
@@ -235,31 +190,28 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteError(w, http.StatusBadRequest, "amount must be a number")
 			return
 		}
-		addSet("amount", f)
+		pb.Set("amount", f)
 	}
 	if v, ok := raw["description"]; ok {
 		if string(v) == "null" {
-			addSet("description", nil)
+			pb.Set("description", nil)
 		} else {
 			var s string
 			if err := json.Unmarshal(v, &s); err != nil {
 				httpx.WriteError(w, http.StatusBadRequest, "description must be a string or null")
 				return
 			}
-			addSet("description", s)
+			pb.Set("description", s)
 		}
 	}
 
-	if len(setClauses) == 0 {
+	if pb.Empty() {
 		httpx.WriteError(w, http.StatusBadRequest, "no updatable fields provided")
 		return
 	}
 
-	args = append(args, expenseID, tourDateID)
-	query := fmt.Sprintf(
-		"UPDATE expenses SET %s WHERE id = $%d AND tourdate_id = $%d RETURNING "+expenseColumns,
-		strings.Join(setClauses, ", "), argPos, argPos+1,
-	)
+	where := fmt.Sprintf("id = $%d AND tourdate_id = $%d", pb.NextArg(), pb.NextArg()+1)
+	query, args := pb.Build("expenses", where, expenseColumns, expenseID, tourDateID)
 
 	row := h.DB.QueryRow(r.Context(), query, args...)
 	e, err := scanExpense(row)
@@ -277,7 +229,7 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 // Delete removes an expense. 404s if the tourdate isn't accessible, or the
 // expense doesn't belong to it.
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
-	tourDateID, ok := accessibleTourDateID(w, r, h.DB)
+	tourDateID, ok := tourdates.AccessibleTourDateID(w, r, h.DB)
 	if !ok {
 		return
 	}

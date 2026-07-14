@@ -3,9 +3,7 @@ package riders
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -43,90 +41,23 @@ func scanRider(row pgx.Row) (Rider, error) {
 	return rd, err
 }
 
+func (h *Handler) resource() tourdates.ScopedResource[Rider] {
+	return tourdates.ScopedResource[Rider]{DB: h.DB, Table: "riders", Columns: riderColumns, OrderBy: "created_at", Scan: scanRider}
+}
+
 // List returns the caller's own riders plus every rider belonging to an
 // artist they represent. If an "artist_id" query param is given, the list is
 // narrowed to just that artist - who must be the caller or someone they
 // represent, else a 404 (so as not to reveal whether that artist_id exists).
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	caller := auth.UserFromContext(r.Context())
-	accessibleIDs, err := tourdates.AccessibleArtistIDs(r.Context(), h.DB, caller.ID)
-	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to list riders")
-		return
-	}
-
-	var rows pgx.Rows
-	if artistIDParam := r.URL.Query().Get("artist_id"); artistIDParam != "" {
-		artistID, err := uuid.Parse(artistIDParam)
-		if err != nil {
-			httpx.WriteError(w, http.StatusBadRequest, "artist_id must be a valid UUID")
-			return
-		}
-		if !tourdates.ContainsID(accessibleIDs, artistID) {
-			httpx.WriteError(w, http.StatusNotFound, "artist not found")
-			return
-		}
-		rows, err = h.DB.Query(r.Context(),
-			"SELECT "+riderColumns+" FROM riders WHERE user_id = $1 ORDER BY created_at", artistID)
-		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "failed to list riders")
-			return
-		}
-	} else {
-		rows, err = h.DB.Query(r.Context(),
-			"SELECT "+riderColumns+" FROM riders WHERE user_id = ANY($1::uuid[]) ORDER BY created_at", accessibleIDs)
-		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "failed to list riders")
-			return
-		}
-	}
-	defer rows.Close()
-
-	riderList := []Rider{}
-	for rows.Next() {
-		rd, err := scanRider(rows)
-		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "failed to read riders")
-			return
-		}
-		riderList = append(riderList, rd)
-	}
-	if err := rows.Err(); err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to read riders")
-		return
-	}
-
-	httpx.WriteJSON(w, http.StatusOK, riderList)
+	tourdates.HandleList(w, r, h.resource(), "rider")
 }
 
 // Get 404s (rather than 403s) when the rider belongs to an artist the caller
 // doesn't represent (and isn't themselves), so as not to reveal that it
 // exists.
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
-	id, err := uuid.Parse(mux.Vars(r)["id"])
-	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
-		return
-	}
-	caller := auth.UserFromContext(r.Context())
-	accessibleIDs, err := tourdates.AccessibleArtistIDs(r.Context(), h.DB, caller.ID)
-	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to read rider")
-		return
-	}
-
-	row := h.DB.QueryRow(r.Context(),
-		"SELECT "+riderColumns+" FROM riders WHERE id = $1 AND user_id = ANY($2::uuid[])", id, accessibleIDs)
-	rd, err := scanRider(row)
-	if errors.Is(err, pgx.ErrNoRows) {
-		httpx.WriteError(w, http.StatusNotFound, "rider not found")
-		return
-	} else if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to read rider")
-		return
-	}
-
-	httpx.WriteJSON(w, http.StatusOK, rd)
+	tourdates.HandleGet(w, r, h.resource(), "rider")
 }
 
 type createRiderRequest struct {
@@ -153,20 +84,9 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	caller := auth.UserFromContext(r.Context())
-	artistID := req.ArtistID
-	if artistID == uuid.Nil {
-		artistID = caller.ID
-	} else if artistID != caller.ID {
-		accessibleIDs, err := tourdates.AccessibleArtistIDs(r.Context(), h.DB, caller.ID)
-		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "failed to create rider")
-			return
-		}
-		if !tourdates.ContainsID(accessibleIDs, artistID) {
-			httpx.WriteError(w, http.StatusForbidden, "you do not have access to create riders for this artist")
-			return
-		}
+	artistID, ok := tourdates.ResolveCreateOwner(w, r, h.DB, req.ArtistID, "rider")
+	if !ok {
+		return
 	}
 
 	row := h.DB.QueryRow(r.Context(),
@@ -205,16 +125,7 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var setClauses []string
-	var args []any
-	argPos := 1
-
-	addSet := func(column string, value any) {
-		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", column, argPos))
-		args = append(args, value)
-		argPos++
-	}
-
+	var pb httpx.PatchBuilder
 	for _, column := range []string{"name", "content"} {
 		v, ok := raw[column]
 		if !ok {
@@ -229,22 +140,15 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteError(w, http.StatusBadRequest, column+" must be a non-empty string")
 			return
 		}
-		addSet(column, s)
+		pb.Set(column, s)
 	}
 
-	if len(setClauses) == 0 {
+	if pb.Empty() {
 		httpx.WriteError(w, http.StatusBadRequest, "no updatable fields provided")
 		return
 	}
 
-	args = append(args, id, accessibleIDs)
-	query := fmt.Sprintf(
-		"UPDATE riders SET %s WHERE id = $%d AND user_id = ANY($%d::uuid[]) RETURNING "+riderColumns,
-		strings.Join(setClauses, ", "), argPos, argPos+1,
-	)
-
-	row := h.DB.QueryRow(r.Context(), query, args...)
-	rd, err := scanRider(row)
+	rd, err := h.resource().Update(r.Context(), &pb, id, accessibleIDs)
 	if errors.Is(err, pgx.ErrNoRows) {
 		httpx.WriteError(w, http.StatusNotFound, "rider not found")
 		return
@@ -260,28 +164,5 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 // represent (and isn't themselves), same as Get/Patch. Tourdates using it
 // survive with rider_id set to null (ON DELETE SET NULL).
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
-	id, err := uuid.Parse(mux.Vars(r)["id"])
-	if err != nil {
-		httpx.WriteError(w, http.StatusBadRequest, "invalid id")
-		return
-	}
-	caller := auth.UserFromContext(r.Context())
-	accessibleIDs, err := tourdates.AccessibleArtistIDs(r.Context(), h.DB, caller.ID)
-	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to delete rider")
-		return
-	}
-
-	tag, err := h.DB.Exec(r.Context(),
-		"DELETE FROM riders WHERE id = $1 AND user_id = ANY($2::uuid[])", id, accessibleIDs)
-	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "failed to delete rider")
-		return
-	}
-	if tag.RowsAffected() == 0 {
-		httpx.WriteError(w, http.StatusNotFound, "rider not found")
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
+	tourdates.HandleDelete(w, r, h.resource(), "rider")
 }

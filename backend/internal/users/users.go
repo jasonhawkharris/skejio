@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -146,15 +145,7 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var setClauses []string
-	var args []any
-	argPos := 1
-
-	addSet := func(column string, value any) {
-		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", column, argPos))
-		args = append(args, value)
-		argPos++
-	}
+	var pb httpx.PatchBuilder
 
 	if v, ok := raw["name"]; ok {
 		var s string
@@ -162,7 +153,7 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteError(w, http.StatusBadRequest, "name must be a non-empty string")
 			return
 		}
-		addSet("name", s)
+		pb.Set("name", s)
 	}
 	if v, ok := raw["email"]; ok {
 		var s string
@@ -170,7 +161,7 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteError(w, http.StatusBadRequest, "email must be a non-empty string")
 			return
 		}
-		addSet("email", s)
+		pb.Set("email", s)
 	}
 	if v, ok := raw["password"]; ok {
 		var s string
@@ -183,7 +174,7 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteError(w, http.StatusInternalServerError, "failed to update user")
 			return
 		}
-		addSet("password_hash", hash)
+		pb.Set("password_hash", hash)
 	}
 	if v, ok := raw["user_type"]; ok {
 		var s string
@@ -191,19 +182,15 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteError(w, http.StatusBadRequest, "user_type must be one of ARTIST, MANAGER, AGENT, CREW, LABEL")
 			return
 		}
-		addSet("user_type", s)
+		pb.Set("user_type", s)
 	}
 
-	if len(setClauses) == 0 {
+	if pb.Empty() {
 		httpx.WriteError(w, http.StatusBadRequest, "no updatable fields provided")
 		return
 	}
 
-	args = append(args, id)
-	query := fmt.Sprintf(
-		"UPDATE users SET %s WHERE id = $%d RETURNING "+userColumns,
-		strings.Join(setClauses, ", "), argPos,
-	)
+	query, args := pb.Build("users", fmt.Sprintf("id = $%d", pb.NextArg()), userColumns, id)
 
 	row := h.DB.QueryRow(r.Context(), query, args...)
 	u, err := scanUser(row)
