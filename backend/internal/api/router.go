@@ -7,8 +7,11 @@ import (
 	"github.com/gorilla/mux"
 
 	"skejio/backend/internal/auth"
+	"skejio/backend/internal/expenses"
+	"skejio/backend/internal/financials"
 	"skejio/backend/internal/representatives"
 	"skejio/backend/internal/tourdates"
+	"skejio/backend/internal/tours"
 	"skejio/backend/internal/users"
 )
 
@@ -25,7 +28,7 @@ func testHandler(w http.ResponseWriter, r *http.Request) {
 
 // NewRouter wires every route. authH.DB is used to construct the auth
 // middleware, since all handlers share the same underlying connection pool.
-func NewRouter(authH *auth.Handler, tourdatesH *tourdates.Handler, usersH *users.Handler, repsH *representatives.Handler) *mux.Router {
+func NewRouter(authH *auth.Handler, tourdatesH *tourdates.Handler, usersH *users.Handler, repsH *representatives.Handler, financialsH *financials.Handler, expensesH *expenses.Handler, toursH *tours.Handler) *mux.Router {
 	r := mux.NewRouter()
 	r.HandleFunc("/", healthHandler).Methods(http.MethodGet)
 	r.HandleFunc("/test", testHandler).Methods(http.MethodGet)
@@ -38,6 +41,24 @@ func NewRouter(authH *auth.Handler, tourdatesH *tourdates.Handler, usersH *users
 	tourdatesRouter.HandleFunc("/{id}", tourdatesH.Get).Methods(http.MethodGet)
 	tourdatesRouter.HandleFunc("/{id}", tourdatesH.Patch).Methods(http.MethodPatch)
 	tourdatesRouter.HandleFunc("/{id}", tourdatesH.Delete).Methods(http.MethodDelete)
+	tourdatesRouter.HandleFunc("/{id}/financials", financialsH.Get).Methods(http.MethodGet)
+	tourdatesRouter.HandleFunc("/{id}/financials", financialsH.Create).Methods(http.MethodPost)
+	tourdatesRouter.HandleFunc("/{id}/financials", financialsH.Patch).Methods(http.MethodPatch)
+	tourdatesRouter.HandleFunc("/{id}/financials", financialsH.Delete).Methods(http.MethodDelete)
+	tourdatesRouter.HandleFunc("/{id}/summary", financialsH.Summary).Methods(http.MethodGet)
+	tourdatesRouter.HandleFunc("/{id}/expenses", expensesH.List).Methods(http.MethodGet)
+	tourdatesRouter.HandleFunc("/{id}/expenses", expensesH.Create).Methods(http.MethodPost)
+	tourdatesRouter.HandleFunc("/{id}/expenses/{expenseID}", expensesH.Get).Methods(http.MethodGet)
+	tourdatesRouter.HandleFunc("/{id}/expenses/{expenseID}", expensesH.Patch).Methods(http.MethodPatch)
+	tourdatesRouter.HandleFunc("/{id}/expenses/{expenseID}", expensesH.Delete).Methods(http.MethodDelete)
+
+	toursRouter := r.PathPrefix("/tours").Subrouter()
+	toursRouter.Use(auth.Middleware(authH.DB))
+	toursRouter.HandleFunc("", toursH.List).Methods(http.MethodGet)
+	toursRouter.HandleFunc("", toursH.Create).Methods(http.MethodPost)
+	toursRouter.HandleFunc("/{id}", toursH.Get).Methods(http.MethodGet)
+	toursRouter.HandleFunc("/{id}", toursH.Patch).Methods(http.MethodPatch)
+	toursRouter.HandleFunc("/{id}", toursH.Delete).Methods(http.MethodDelete)
 
 	logoutRouter := r.PathPrefix("/logout").Subrouter()
 	logoutRouter.Use(auth.Middleware(authH.DB))

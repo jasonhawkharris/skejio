@@ -25,8 +25,11 @@ import (
 
 	"skejio/backend/internal/api"
 	"skejio/backend/internal/auth"
+	"skejio/backend/internal/expenses"
+	"skejio/backend/internal/financials"
 	"skejio/backend/internal/representatives"
 	"skejio/backend/internal/tourdates"
+	"skejio/backend/internal/tours"
 	"skejio/backend/internal/users"
 )
 
@@ -65,6 +68,9 @@ func Run(m *testing.M) {
 		&tourdates.Handler{DB: pool},
 		&users.Handler{DB: pool},
 		&representatives.Handler{DB: pool},
+		&financials.Handler{DB: pool},
+		&expenses.Handler{DB: pool},
+		&tours.Handler{DB: pool},
 	)
 
 	os.Exit(m.Run())
@@ -72,7 +78,7 @@ func Run(m *testing.M) {
 
 func TruncateTables(t *testing.T) {
 	t.Helper()
-	if _, err := Pool.Exec(context.Background(), "TRUNCATE TABLE tourdates, users, sessions, artist_representatives"); err != nil {
+	if _, err := Pool.Exec(context.Background(), "TRUNCATE TABLE expenses, financials, tourdates, tours, users, sessions, artist_representatives"); err != nil {
 		t.Fatalf("failed to truncate tables: %v", err)
 	}
 }
@@ -162,6 +168,32 @@ func CreateTestTourDate(t *testing.T, token, body string) tourdates.TourDate {
 		t.Fatalf("failed to decode created tourdate: %v", err)
 	}
 	return td
+}
+
+func CreateTestTour(t *testing.T, token, body string) tours.Tour {
+	t.Helper()
+	rec := DoAuthRequest(http.MethodPost, "/tours", body, token)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("failed to create tour: status %d, body %s", rec.Code, rec.Body.String())
+	}
+	var tr tours.Tour
+	if err := json.Unmarshal(rec.Body.Bytes(), &tr); err != nil {
+		t.Fatalf("failed to decode created tour: %v", err)
+	}
+	return tr
+}
+
+func CreateTestExpense(t *testing.T, token, tourDateID, body string) expenses.Expense {
+	t.Helper()
+	rec := DoAuthRequest(http.MethodPost, "/tourdates/"+tourDateID+"/expenses", body, token)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("failed to create expense: status %d, body %s", rec.Code, rec.Body.String())
+	}
+	var e expenses.Expense
+	if err := json.Unmarshal(rec.Body.Bytes(), &e); err != nil {
+		t.Fatalf("failed to decode created expense: %v", err)
+	}
+	return e
 }
 
 func AddRepresentative(t *testing.T, artistToken string, representativeID uuid.UUID) representatives.RepresentedUser {

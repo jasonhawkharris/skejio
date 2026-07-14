@@ -42,19 +42,20 @@ func (d *Date) UnmarshalJSON(data []byte) error {
 }
 
 type TourDate struct {
-	ID             uuid.UUID `json:"id"`
-	Date           Date      `json:"date"`
-	City           string    `json:"city"`
-	State          *string   `json:"state"`
-	Venue          string    `json:"venue"`
-	POCName        *string   `json:"poc_name"`
-	POCNumber      *string   `json:"poc_number"`
-	POCEmail       *string   `json:"poc_email"`
-	PromoterName   *string   `json:"promoter_name"`
-	PromoterNumber *string   `json:"promoter_number"`
-	PromoterEmail  *string   `json:"promoter_email"`
-	UserID         uuid.UUID `json:"user_id"`
-	CreatedAt      time.Time `json:"created_at"`
+	ID             uuid.UUID  `json:"id"`
+	Date           Date       `json:"date"`
+	City           string     `json:"city"`
+	State          *string    `json:"state"`
+	Venue          string     `json:"venue"`
+	POCName        *string    `json:"poc_name"`
+	POCNumber      *string    `json:"poc_number"`
+	POCEmail       *string    `json:"poc_email"`
+	PromoterName   *string    `json:"promoter_name"`
+	PromoterNumber *string    `json:"promoter_number"`
+	PromoterEmail  *string    `json:"promoter_email"`
+	UserID         uuid.UUID  `json:"user_id"`
+	TourID         *uuid.UUID `json:"tour_id"`
+	CreatedAt      time.Time  `json:"created_at"`
 }
 
 type Handler struct {
@@ -68,18 +69,18 @@ func scanTourDate(row pgx.Row) (TourDate, error) {
 		&td.ID, &d, &td.City, &td.State, &td.Venue,
 		&td.POCName, &td.POCNumber, &td.POCEmail,
 		&td.PromoterName, &td.PromoterNumber, &td.PromoterEmail,
-		&td.UserID, &td.CreatedAt,
+		&td.UserID, &td.TourID, &td.CreatedAt,
 	)
 	td.Date = Date(d)
 	return td, err
 }
 
-const tourDateColumns = "id, date, city, state, venue, poc_name, poc_number, poc_email, promoter_name, promoter_number, promoter_email, user_id, created_at"
+const tourDateColumns = "id, date, city, state, venue, poc_name, poc_number, poc_email, promoter_name, promoter_number, promoter_email, user_id, tour_id, created_at"
 
-// accessibleArtistIDs returns the set of user ids whose tourdates the caller
+// AccessibleArtistIDs returns the set of user ids whose tourdates the caller
 // may access: their own id, plus every artist they represent (if any).
 // Returned as strings so it can be bound directly to a ::uuid[] parameter.
-func accessibleArtistIDs(ctx context.Context, db *pgxpool.Pool, callerID uuid.UUID) ([]string, error) {
+func AccessibleArtistIDs(ctx context.Context, db *pgxpool.Pool, callerID uuid.UUID) ([]string, error) {
 	ids := []string{callerID.String()}
 
 	rows, err := db.Query(ctx, "SELECT artist_id FROM artist_representatives WHERE representative_id = $1", callerID)
@@ -102,7 +103,7 @@ func accessibleArtistIDs(ctx context.Context, db *pgxpool.Pool, callerID uuid.UU
 	return ids, nil
 }
 
-func containsID(ids []string, id uuid.UUID) bool {
+func ContainsID(ids []string, id uuid.UUID) bool {
 	target := id.String()
 	for _, existing := range ids {
 		if existing == target {
@@ -119,10 +120,20 @@ func containsID(ids []string, id uuid.UUID) bool {
 // as not to reveal whether that artist_id exists at all).
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	caller := auth.UserFromContext(r.Context())
-	accessibleIDs, err := accessibleArtistIDs(r.Context(), h.DB, caller.ID)
+	accessibleIDs, err := AccessibleArtistIDs(r.Context(), h.DB, caller.ID)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "failed to list tourdates")
 		return
+	}
+
+	var tourIDFilter *uuid.UUID
+	if tourIDParam := r.URL.Query().Get("tour_id"); tourIDParam != "" {
+		parsed, err := uuid.Parse(tourIDParam)
+		if err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "tour_id must be a valid UUID")
+			return
+		}
+		tourIDFilter = &parsed
 	}
 
 	var rows pgx.Rows
@@ -132,19 +143,21 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteError(w, http.StatusBadRequest, "artist_id must be a valid UUID")
 			return
 		}
-		if !containsID(accessibleIDs, artistID) {
+		if !ContainsID(accessibleIDs, artistID) {
 			httpx.WriteError(w, http.StatusNotFound, "artist not found")
 			return
 		}
 		rows, err = h.DB.Query(r.Context(),
-			"SELECT "+tourDateColumns+" FROM tourdates WHERE user_id = $1 ORDER BY date", artistID)
+			"SELECT "+tourDateColumns+" FROM tourdates WHERE user_id = $1 AND ($2::uuid IS NULL OR tour_id = $2) ORDER BY date",
+			artistID, tourIDFilter)
 		if err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "failed to list tourdates")
 			return
 		}
 	} else {
 		rows, err = h.DB.Query(r.Context(),
-			"SELECT "+tourDateColumns+" FROM tourdates WHERE user_id = ANY($1::uuid[]) ORDER BY date", accessibleIDs)
+			"SELECT "+tourDateColumns+" FROM tourdates WHERE user_id = ANY($1::uuid[]) AND ($2::uuid IS NULL OR tour_id = $2) ORDER BY date",
+			accessibleIDs, tourIDFilter)
 		if err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "failed to list tourdates")
 			return
@@ -179,7 +192,7 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	caller := auth.UserFromContext(r.Context())
-	accessibleIDs, err := accessibleArtistIDs(r.Context(), h.DB, caller.ID)
+	accessibleIDs, err := AccessibleArtistIDs(r.Context(), h.DB, caller.ID)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "failed to read tourdate")
 		return
@@ -211,6 +224,7 @@ type createTourDateRequest struct {
 	PromoterNumber *string   `json:"promoter_number"`
 	PromoterEmail  *string   `json:"promoter_email"`
 	ArtistID       uuid.UUID `json:"artist_id"`
+	TourID         uuid.UUID `json:"tour_id"`
 }
 
 // Create assigns ownership to artist_id if given - which must be the caller
@@ -240,24 +254,42 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	if artistID == uuid.Nil {
 		artistID = caller.ID
 	} else if artistID != caller.ID {
-		accessibleIDs, err := accessibleArtistIDs(r.Context(), h.DB, caller.ID)
+		accessibleIDs, err := AccessibleArtistIDs(r.Context(), h.DB, caller.ID)
 		if err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "failed to create tourdate")
 			return
 		}
-		if !containsID(accessibleIDs, artistID) {
+		if !ContainsID(accessibleIDs, artistID) {
 			httpx.WriteError(w, http.StatusForbidden, "you do not have access to create tourdates for this artist")
 			return
 		}
 	}
 
+	var tourID *uuid.UUID
+	if req.TourID != uuid.Nil {
+		var tourOwnerID uuid.UUID
+		err := h.DB.QueryRow(r.Context(), "SELECT user_id FROM tours WHERE id = $1", req.TourID).Scan(&tourOwnerID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			httpx.WriteError(w, http.StatusBadRequest, "tour_id references a nonexistent tour")
+			return
+		} else if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "failed to create tourdate")
+			return
+		}
+		if tourOwnerID != artistID {
+			httpx.WriteError(w, http.StatusBadRequest, "tour_id must belong to the same artist as this tourdate")
+			return
+		}
+		tourID = &req.TourID
+	}
+
 	row := h.DB.QueryRow(r.Context(),
-		"INSERT INTO tourdates (date, city, state, venue, poc_name, poc_number, poc_email, promoter_name, promoter_number, promoter_email, user_id) "+
-			"VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING "+tourDateColumns,
+		"INSERT INTO tourdates (date, city, state, venue, poc_name, poc_number, poc_email, promoter_name, promoter_number, promoter_email, user_id, tour_id) "+
+			"VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING "+tourDateColumns,
 		time.Time(req.Date), req.City, req.State, req.Venue,
 		req.POCName, req.POCNumber, req.POCEmail,
 		req.PromoterName, req.PromoterNumber, req.PromoterEmail,
-		artistID)
+		artistID, tourID)
 	td, err := scanTourDate(row)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "failed to create tourdate")
@@ -279,7 +311,7 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	caller := auth.UserFromContext(r.Context())
-	accessibleIDs, err := accessibleArtistIDs(r.Context(), h.DB, caller.ID)
+	accessibleIDs, err := AccessibleArtistIDs(r.Context(), h.DB, caller.ID)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "failed to update tourdate")
 		return
@@ -324,6 +356,48 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		addSet("venue", s)
+	}
+	if v, ok := raw["tour_id"]; ok {
+		if string(v) == "null" {
+			addSet("tour_id", nil)
+		} else {
+			var tourID uuid.UUID
+			if err := json.Unmarshal(v, &tourID); err != nil {
+				httpx.WriteError(w, http.StatusBadRequest, "tour_id must be a valid UUID or null")
+				return
+			}
+
+			// Look up the tourdate's current owner through the same
+			// accessibleIDs filter as the final UPDATE, so an inaccessible
+			// tourdate 404s here rather than leaking its existence via a
+			// 400 further down.
+			var currentOwnerID uuid.UUID
+			err := h.DB.QueryRow(r.Context(),
+				"SELECT user_id FROM tourdates WHERE id = $1 AND user_id = ANY($2::uuid[])", id, accessibleIDs,
+			).Scan(&currentOwnerID)
+			if errors.Is(err, pgx.ErrNoRows) {
+				httpx.WriteError(w, http.StatusNotFound, "tourdate not found")
+				return
+			} else if err != nil {
+				httpx.WriteError(w, http.StatusInternalServerError, "failed to update tourdate")
+				return
+			}
+
+			var tourOwnerID uuid.UUID
+			err = h.DB.QueryRow(r.Context(), "SELECT user_id FROM tours WHERE id = $1", tourID).Scan(&tourOwnerID)
+			if errors.Is(err, pgx.ErrNoRows) {
+				httpx.WriteError(w, http.StatusBadRequest, "tour_id references a nonexistent tour")
+				return
+			} else if err != nil {
+				httpx.WriteError(w, http.StatusInternalServerError, "failed to update tourdate")
+				return
+			}
+			if tourOwnerID != currentOwnerID {
+				httpx.WriteError(w, http.StatusBadRequest, "tour_id must belong to the same artist as this tourdate")
+				return
+			}
+			addSet("tour_id", tourID)
+		}
 	}
 
 	// state and the POC/promoter contact fields are all nullable TEXT
@@ -383,7 +457,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	caller := auth.UserFromContext(r.Context())
-	accessibleIDs, err := accessibleArtistIDs(r.Context(), h.DB, caller.ID)
+	accessibleIDs, err := AccessibleArtistIDs(r.Context(), h.DB, caller.ID)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "failed to delete tourdate")
 		return
