@@ -10,6 +10,7 @@ import (
 	"skejio/backend/internal/expenses"
 	"skejio/backend/internal/financials"
 	"skejio/backend/internal/representatives"
+	"skejio/backend/internal/riders"
 	"skejio/backend/internal/tourdates"
 	"skejio/backend/internal/tours"
 	"skejio/backend/internal/users"
@@ -28,7 +29,7 @@ func testHandler(w http.ResponseWriter, r *http.Request) {
 
 // NewRouter wires every route. authH.DB is used to construct the auth
 // middleware, since all handlers share the same underlying connection pool.
-func NewRouter(authH *auth.Handler, tourdatesH *tourdates.Handler, usersH *users.Handler, repsH *representatives.Handler, financialsH *financials.Handler, expensesH *expenses.Handler, toursH *tours.Handler) *mux.Router {
+func NewRouter(authH *auth.Handler, tourdatesH *tourdates.Handler, usersH *users.Handler, repsH *representatives.Handler, financialsH *financials.Handler, expensesH *expenses.Handler, toursH *tours.Handler, ridersH *riders.Handler) *mux.Router {
 	r := mux.NewRouter()
 	r.HandleFunc("/", healthHandler).Methods(http.MethodGet)
 	r.HandleFunc("/test", testHandler).Methods(http.MethodGet)
@@ -59,6 +60,14 @@ func NewRouter(authH *auth.Handler, tourdatesH *tourdates.Handler, usersH *users
 	toursRouter.HandleFunc("/{id}", toursH.Get).Methods(http.MethodGet)
 	toursRouter.HandleFunc("/{id}", toursH.Patch).Methods(http.MethodPatch)
 	toursRouter.HandleFunc("/{id}", toursH.Delete).Methods(http.MethodDelete)
+
+	ridersRouter := r.PathPrefix("/riders").Subrouter()
+	ridersRouter.Use(auth.Middleware(authH.DB))
+	ridersRouter.HandleFunc("", ridersH.List).Methods(http.MethodGet)
+	ridersRouter.HandleFunc("", ridersH.Create).Methods(http.MethodPost)
+	ridersRouter.HandleFunc("/{id}", ridersH.Get).Methods(http.MethodGet)
+	ridersRouter.HandleFunc("/{id}", ridersH.Patch).Methods(http.MethodPatch)
+	ridersRouter.HandleFunc("/{id}", ridersH.Delete).Methods(http.MethodDelete)
 
 	logoutRouter := r.PathPrefix("/logout").Subrouter()
 	logoutRouter.Use(auth.Middleware(authH.DB))

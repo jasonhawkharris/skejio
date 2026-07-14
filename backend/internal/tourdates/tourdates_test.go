@@ -22,6 +22,19 @@ func createTestTour(t *testing.T, token, name string) string {
 	return tr.ID
 }
 
+func createTestRider(t *testing.T, token, name string) string {
+	t.Helper()
+	rec := testutil.DoAuthRequest(http.MethodPost, "/riders", `{"name":"`+name+`","content":"stuff"}`, token)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("failed to create rider: status %d, body %s", rec.Code, rec.Body.String())
+	}
+	var rd struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &rd)
+	return rd.ID
+}
+
 func TestMain(m *testing.M) { testutil.Run(m) }
 
 func TestCreateTourDate(t *testing.T) {
@@ -480,6 +493,118 @@ func TestListTourDates_FilteredByTourID(t *testing.T) {
 	json.Unmarshal(rec.Body.Bytes(), &tds)
 	if len(tds) != 1 || tds[0].City != "Austin" {
 		t.Fatalf("expected only the tourdate in the tour, got %+v", tds)
+	}
+}
+
+func TestCreateTourDate_WithRiderID(t *testing.T) {
+	testutil.TruncateTables(t)
+	_, token := testutil.CreateAndLoginTestUser(t)
+	riderID := createTestRider(t, token, "Club Rider")
+
+	rec := testutil.DoAuthRequest(http.MethodPost, "/tourdates",
+		`{"date":"2026-09-15","city":"Austin","venue":"Moody Center","rider_id":"`+riderID+`"}`, token)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var td tourdates.TourDate
+	json.Unmarshal(rec.Body.Bytes(), &td)
+	if td.RiderID == nil || td.RiderID.String() != riderID {
+		t.Fatalf("expected rider_id %s, got %+v", riderID, td.RiderID)
+	}
+}
+
+func TestCreateTourDate_NonexistentRiderID(t *testing.T) {
+	testutil.TruncateTables(t)
+	_, token := testutil.CreateAndLoginTestUser(t)
+
+	rec := testutil.DoAuthRequest(http.MethodPost, "/tourdates",
+		`{"date":"2026-09-15","city":"Austin","venue":"Moody Center","rider_id":"11111111-1111-1111-1111-111111111111"}`, token)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCreateTourDate_RiderIDBelongsToDifferentArtist(t *testing.T) {
+	testutil.TruncateTables(t)
+	_, tokenA := testutil.CreateAndLoginTestUser(t)
+	_, tokenB := testutil.CreateAndLoginTestUser(t)
+	riderID := createTestRider(t, tokenB, "B's Rider")
+
+	rec := testutil.DoAuthRequest(http.MethodPost, "/tourdates",
+		`{"date":"2026-09-15","city":"Austin","venue":"Moody Center","rider_id":"`+riderID+`"}`, tokenA)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPatchTourDate_SetAndClearRiderID(t *testing.T) {
+	testutil.TruncateTables(t)
+	_, token := testutil.CreateAndLoginTestUser(t)
+	riderID := createTestRider(t, token, "Club Rider")
+	created := testutil.CreateTestTourDate(t, token, `{"date":"2026-09-15","city":"Austin","venue":"Moody Center"}`)
+
+	rec := testutil.DoAuthRequest(http.MethodPatch, "/tourdates/"+created.ID.String(), `{"rider_id":"`+riderID+`"}`, token)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var td tourdates.TourDate
+	json.Unmarshal(rec.Body.Bytes(), &td)
+	if td.RiderID == nil || td.RiderID.String() != riderID {
+		t.Fatalf("expected rider_id %s, got %+v", riderID, td.RiderID)
+	}
+
+	rec = testutil.DoAuthRequest(http.MethodPatch, "/tourdates/"+created.ID.String(), `{"rider_id":null}`, token)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	json.Unmarshal(rec.Body.Bytes(), &td)
+	if td.RiderID != nil {
+		t.Fatalf("expected rider_id to be cleared, got %v", *td.RiderID)
+	}
+}
+
+func TestPatchTourDate_RiderIDBelongsToDifferentArtist(t *testing.T) {
+	testutil.TruncateTables(t)
+	_, tokenA := testutil.CreateAndLoginTestUser(t)
+	_, tokenB := testutil.CreateAndLoginTestUser(t)
+	riderID := createTestRider(t, tokenB, "B's Rider")
+	created := testutil.CreateTestTourDate(t, tokenA, `{"date":"2026-09-15","city":"Austin","venue":"Moody Center"}`)
+
+	rec := testutil.DoAuthRequest(http.MethodPatch, "/tourdates/"+created.ID.String(), `{"rider_id":"`+riderID+`"}`, tokenA)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPatchTourDate_RiderIDOnOtherUsersTourdate404(t *testing.T) {
+	testutil.TruncateTables(t)
+	_, tokenA := testutil.CreateAndLoginTestUser(t)
+	_, tokenB := testutil.CreateAndLoginTestUser(t)
+	riderID := createTestRider(t, tokenB, "B's Rider")
+	created := testutil.CreateTestTourDate(t, tokenA, `{"date":"2026-09-15","city":"Austin","venue":"Moody Center"}`)
+
+	rec := testutil.DoAuthRequest(http.MethodPatch, "/tourdates/"+created.ID.String(), `{"rider_id":"`+riderID+`"}`, tokenB)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestListTourDates_FilteredByRiderID(t *testing.T) {
+	testutil.TruncateTables(t)
+	_, token := testutil.CreateAndLoginTestUser(t)
+	riderID := createTestRider(t, token, "Club Rider")
+
+	testutil.CreateTestTourDate(t, token, `{"date":"2026-09-15","city":"Austin","venue":"Moody Center","rider_id":"`+riderID+`"}`)
+	testutil.CreateTestTourDate(t, token, `{"date":"2026-09-20","city":"Dallas","venue":"American Airlines Center"}`)
+
+	rec := testutil.DoAuthRequest(http.MethodGet, "/tourdates?rider_id="+riderID, "", token)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var tds []tourdates.TourDate
+	json.Unmarshal(rec.Body.Bytes(), &tds)
+	if len(tds) != 1 || tds[0].City != "Austin" {
+		t.Fatalf("expected only the tourdate with the rider, got %+v", tds)
 	}
 }
 

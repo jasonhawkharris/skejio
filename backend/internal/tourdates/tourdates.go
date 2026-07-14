@@ -55,6 +55,7 @@ type TourDate struct {
 	PromoterEmail  *string    `json:"promoter_email"`
 	UserID         uuid.UUID  `json:"user_id"`
 	TourID         *uuid.UUID `json:"tour_id"`
+	RiderID        *uuid.UUID `json:"rider_id"`
 	CreatedAt      time.Time  `json:"created_at"`
 }
 
@@ -69,13 +70,13 @@ func scanTourDate(row pgx.Row) (TourDate, error) {
 		&td.ID, &d, &td.City, &td.State, &td.Venue,
 		&td.POCName, &td.POCNumber, &td.POCEmail,
 		&td.PromoterName, &td.PromoterNumber, &td.PromoterEmail,
-		&td.UserID, &td.TourID, &td.CreatedAt,
+		&td.UserID, &td.TourID, &td.RiderID, &td.CreatedAt,
 	)
 	td.Date = Date(d)
 	return td, err
 }
 
-const tourDateColumns = "id, date, city, state, venue, poc_name, poc_number, poc_email, promoter_name, promoter_number, promoter_email, user_id, tour_id, created_at"
+const tourDateColumns = "id, date, city, state, venue, poc_name, poc_number, poc_email, promoter_name, promoter_number, promoter_email, user_id, tour_id, rider_id, created_at"
 
 // AccessibleArtistIDs returns the set of user ids whose tourdates the caller
 // may access: their own id, plus every artist they represent (if any).
@@ -136,6 +137,16 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		tourIDFilter = &parsed
 	}
 
+	var riderIDFilter *uuid.UUID
+	if riderIDParam := r.URL.Query().Get("rider_id"); riderIDParam != "" {
+		parsed, err := uuid.Parse(riderIDParam)
+		if err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "rider_id must be a valid UUID")
+			return
+		}
+		riderIDFilter = &parsed
+	}
+
 	var rows pgx.Rows
 	if artistIDParam := r.URL.Query().Get("artist_id"); artistIDParam != "" {
 		artistID, err := uuid.Parse(artistIDParam)
@@ -148,16 +159,16 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		rows, err = h.DB.Query(r.Context(),
-			"SELECT "+tourDateColumns+" FROM tourdates WHERE user_id = $1 AND ($2::uuid IS NULL OR tour_id = $2) ORDER BY date",
-			artistID, tourIDFilter)
+			"SELECT "+tourDateColumns+" FROM tourdates WHERE user_id = $1 AND ($2::uuid IS NULL OR tour_id = $2) AND ($3::uuid IS NULL OR rider_id = $3) ORDER BY date",
+			artistID, tourIDFilter, riderIDFilter)
 		if err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "failed to list tourdates")
 			return
 		}
 	} else {
 		rows, err = h.DB.Query(r.Context(),
-			"SELECT "+tourDateColumns+" FROM tourdates WHERE user_id = ANY($1::uuid[]) AND ($2::uuid IS NULL OR tour_id = $2) ORDER BY date",
-			accessibleIDs, tourIDFilter)
+			"SELECT "+tourDateColumns+" FROM tourdates WHERE user_id = ANY($1::uuid[]) AND ($2::uuid IS NULL OR tour_id = $2) AND ($3::uuid IS NULL OR rider_id = $3) ORDER BY date",
+			accessibleIDs, tourIDFilter, riderIDFilter)
 		if err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "failed to list tourdates")
 			return
@@ -225,6 +236,7 @@ type createTourDateRequest struct {
 	PromoterEmail  *string   `json:"promoter_email"`
 	ArtistID       uuid.UUID `json:"artist_id"`
 	TourID         uuid.UUID `json:"tour_id"`
+	RiderID        uuid.UUID `json:"rider_id"`
 }
 
 // Create assigns ownership to artist_id if given - which must be the caller
@@ -283,13 +295,31 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		tourID = &req.TourID
 	}
 
+	var riderID *uuid.UUID
+	if req.RiderID != uuid.Nil {
+		var riderOwnerID uuid.UUID
+		err := h.DB.QueryRow(r.Context(), "SELECT user_id FROM riders WHERE id = $1", req.RiderID).Scan(&riderOwnerID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			httpx.WriteError(w, http.StatusBadRequest, "rider_id references a nonexistent rider")
+			return
+		} else if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "failed to create tourdate")
+			return
+		}
+		if riderOwnerID != artistID {
+			httpx.WriteError(w, http.StatusBadRequest, "rider_id must belong to the same artist as this tourdate")
+			return
+		}
+		riderID = &req.RiderID
+	}
+
 	row := h.DB.QueryRow(r.Context(),
-		"INSERT INTO tourdates (date, city, state, venue, poc_name, poc_number, poc_email, promoter_name, promoter_number, promoter_email, user_id, tour_id) "+
-			"VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING "+tourDateColumns,
+		"INSERT INTO tourdates (date, city, state, venue, poc_name, poc_number, poc_email, promoter_name, promoter_number, promoter_email, user_id, tour_id, rider_id) "+
+			"VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING "+tourDateColumns,
 		time.Time(req.Date), req.City, req.State, req.Venue,
 		req.POCName, req.POCNumber, req.POCEmail,
 		req.PromoterName, req.PromoterNumber, req.PromoterEmail,
-		artistID, tourID)
+		artistID, tourID, riderID)
 	td, err := scanTourDate(row)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "failed to create tourdate")
@@ -397,6 +427,47 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			addSet("tour_id", tourID)
+		}
+	}
+	if v, ok := raw["rider_id"]; ok {
+		if string(v) == "null" {
+			addSet("rider_id", nil)
+		} else {
+			var riderID uuid.UUID
+			if err := json.Unmarshal(v, &riderID); err != nil {
+				httpx.WriteError(w, http.StatusBadRequest, "rider_id must be a valid UUID or null")
+				return
+			}
+
+			// Same accessibleIDs-filtered lookup as tour_id above, so an
+			// inaccessible tourdate 404s here rather than leaking its
+			// existence via a 400 further down.
+			var currentOwnerID uuid.UUID
+			err := h.DB.QueryRow(r.Context(),
+				"SELECT user_id FROM tourdates WHERE id = $1 AND user_id = ANY($2::uuid[])", id, accessibleIDs,
+			).Scan(&currentOwnerID)
+			if errors.Is(err, pgx.ErrNoRows) {
+				httpx.WriteError(w, http.StatusNotFound, "tourdate not found")
+				return
+			} else if err != nil {
+				httpx.WriteError(w, http.StatusInternalServerError, "failed to update tourdate")
+				return
+			}
+
+			var riderOwnerID uuid.UUID
+			err = h.DB.QueryRow(r.Context(), "SELECT user_id FROM riders WHERE id = $1", riderID).Scan(&riderOwnerID)
+			if errors.Is(err, pgx.ErrNoRows) {
+				httpx.WriteError(w, http.StatusBadRequest, "rider_id references a nonexistent rider")
+				return
+			} else if err != nil {
+				httpx.WriteError(w, http.StatusInternalServerError, "failed to update tourdate")
+				return
+			}
+			if riderOwnerID != currentOwnerID {
+				httpx.WriteError(w, http.StatusBadRequest, "rider_id must belong to the same artist as this tourdate")
+				return
+			}
+			addSet("rider_id", riderID)
 		}
 	}
 
