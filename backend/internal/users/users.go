@@ -24,6 +24,7 @@ type User struct {
 	Email        string    `json:"email"`
 	PasswordHash string    `json:"-"`
 	UserType     string    `json:"user_type"`
+	ArtistName   *string   `json:"artist_name"`
 	CreatedAt    time.Time `json:"created_at"`
 }
 
@@ -39,11 +40,11 @@ type Handler struct {
 	DB *pgxpool.Pool
 }
 
-const userColumns = "id, name, email, user_type, created_at"
+const userColumns = "id, name, email, user_type, artist_name, created_at"
 
 func scanUser(row pgx.Row) (User, error) {
 	var u User
-	err := row.Scan(&u.ID, &u.Name, &u.Email, &u.UserType, &u.CreatedAt)
+	err := row.Scan(&u.ID, &u.Name, &u.Email, &u.UserType, &u.ArtistName, &u.CreatedAt)
 	return u, err
 }
 
@@ -74,10 +75,11 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 type createUserRequest struct {
-	Name     string `json:"name"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	UserType string `json:"user_type"`
+	Name       string  `json:"name"`
+	Email      string  `json:"email"`
+	Password   string  `json:"password"`
+	UserType   string  `json:"user_type"`
+	ArtistName *string `json:"artist_name"`
 }
 
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
@@ -102,6 +104,10 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, "user_type must be one of ARTIST, MANAGER, AGENT, CREW, LABEL")
 		return
 	}
+	if req.ArtistName != nil && req.UserType != "ARTIST" {
+		httpx.WriteError(w, http.StatusBadRequest, "artist_name can only be set for ARTIST users")
+		return
+	}
 
 	hash, err := password.Hash(req.Password)
 	if err != nil {
@@ -110,8 +116,8 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	row := h.DB.QueryRow(r.Context(),
-		"INSERT INTO users (name, email, password_hash, user_type) VALUES ($1, $2, $3, $4) RETURNING "+userColumns,
-		req.Name, req.Email, hash, req.UserType)
+		"INSERT INTO users (name, email, password_hash, user_type, artist_name) VALUES ($1, $2, $3, $4, $5) RETURNING "+userColumns,
+		req.Name, req.Email, hash, req.UserType, req.ArtistName)
 	u, err := scanUser(row)
 	if dberr.IsUniqueViolation(err) {
 		httpx.WriteError(w, http.StatusConflict, "email is already in use")
@@ -124,10 +130,13 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusCreated, u)
 }
 
-// Patch applies a partial update to name, email, password, and/or user_type.
-// A field omitted from the JSON body is left unchanged; none of these may be
-// set to null since all of the underlying columns are NOT NULL. An id other
-// than the caller's own 404s, same as Get.
+// Patch applies a partial update to name, email, password, user_type, and/or
+// artist_name. A field omitted from the JSON body is left unchanged; only
+// artist_name is nullable, and it may only be set to a non-null value for
+// ARTIST users (explicit null always clears it, for any user_type).
+// Patching user_type away from ARTIST also clears artist_name, unless this
+// same request already set it explicitly. An id other than the caller's own
+// 404s, same as Get.
 func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(mux.Vars(r)["id"])
 	if err != nil {
@@ -176,6 +185,8 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 		}
 		pb.Set("password_hash", hash)
 	}
+	newUserType := auth.UserFromContext(r.Context()).UserType
+	userTypeChanged := false
 	if v, ok := raw["user_type"]; ok {
 		var s string
 		if err := json.Unmarshal(v, &s); err != nil || !validUserTypes[s] {
@@ -183,6 +194,33 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		pb.Set("user_type", s)
+		newUserType = s
+		userTypeChanged = true
+	}
+
+	artistNameSet := false
+	if v, ok := raw["artist_name"]; ok {
+		artistNameSet = true
+		if string(v) == "null" {
+			pb.Set("artist_name", nil)
+		} else {
+			if newUserType != "ARTIST" {
+				httpx.WriteError(w, http.StatusBadRequest, "artist_name can only be set for ARTIST users")
+				return
+			}
+			var s string
+			if err := json.Unmarshal(v, &s); err != nil {
+				httpx.WriteError(w, http.StatusBadRequest, "artist_name must be a string or null")
+				return
+			}
+			pb.Set("artist_name", s)
+		}
+	}
+	// Changing user_type away from ARTIST clears any existing artist_name, so
+	// the two fields never end up out of sync - unless this same request
+	// already set artist_name explicitly (handled above).
+	if userTypeChanged && newUserType != "ARTIST" && !artistNameSet {
+		pb.Set("artist_name", nil)
 	}
 
 	if pb.Empty() {
