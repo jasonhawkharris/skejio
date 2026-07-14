@@ -114,6 +114,86 @@ func ContainsID(ids []string, id uuid.UUID) bool {
 	return false
 }
 
+// resolveOwnedFK validates a nullable owned-FK request field for Create:
+// field is the JSON field name (e.g. "tour_id"), table is the referenced
+// table (e.g. "tours") - which must have a user_id column. id of uuid.Nil
+// means the field was omitted, returning (nil, true). Otherwise id must
+// reference a row in table owned by ownerID.
+func (h *Handler) resolveOwnedFK(ctx context.Context, w http.ResponseWriter, field, table string, id, ownerID uuid.UUID) (*uuid.UUID, bool) {
+	if id == uuid.Nil {
+		return nil, true
+	}
+
+	var actualOwnerID uuid.UUID
+	err := h.DB.QueryRow(ctx, "SELECT user_id FROM "+table+" WHERE id = $1", id).Scan(&actualOwnerID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		httpx.WriteError(w, http.StatusBadRequest, field+" references a nonexistent "+strings.TrimSuffix(field, "_id"))
+		return nil, false
+	} else if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to create tourdate")
+		return nil, false
+	}
+	if actualOwnerID != ownerID {
+		httpx.WriteError(w, http.StatusBadRequest, field+" must belong to the same artist as this tourdate")
+		return nil, false
+	}
+
+	return &id, true
+}
+
+// applyOwnedFKPatch handles a nullable owned-FK field (e.g. "tour_id",
+// "rider_id") in a PATCH body via addSet: raw is that field's JSON value -
+// literal null clears the column; otherwise it must be a UUID referencing a
+// row in table (which must have a user_id column) owned by the same artist
+// as the tourdate being patched. The tourdate's current owner is looked up
+// through the same accessibleIDs filter as the final UPDATE, so an
+// inaccessible tourdate 404s here rather than leaking its existence via a
+// 400 further down.
+func (h *Handler) applyOwnedFKPatch(
+	ctx context.Context, w http.ResponseWriter, raw json.RawMessage, field, table string,
+	tourdateID uuid.UUID, accessibleIDs []string, addSet func(string, any),
+) bool {
+	if string(raw) == "null" {
+		addSet(field, nil)
+		return true
+	}
+
+	var id uuid.UUID
+	if err := json.Unmarshal(raw, &id); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, field+" must be a valid UUID or null")
+		return false
+	}
+
+	var currentOwnerID uuid.UUID
+	err := h.DB.QueryRow(ctx,
+		"SELECT user_id FROM tourdates WHERE id = $1 AND user_id = ANY($2::uuid[])", tourdateID, accessibleIDs,
+	).Scan(&currentOwnerID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		httpx.WriteError(w, http.StatusNotFound, "tourdate not found")
+		return false
+	} else if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to update tourdate")
+		return false
+	}
+
+	var actualOwnerID uuid.UUID
+	err = h.DB.QueryRow(ctx, "SELECT user_id FROM "+table+" WHERE id = $1", id).Scan(&actualOwnerID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		httpx.WriteError(w, http.StatusBadRequest, field+" references a nonexistent "+strings.TrimSuffix(field, "_id"))
+		return false
+	} else if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "failed to update tourdate")
+		return false
+	}
+	if actualOwnerID != currentOwnerID {
+		httpx.WriteError(w, http.StatusBadRequest, field+" must belong to the same artist as this tourdate")
+		return false
+	}
+
+	addSet(field, id)
+	return true
+}
+
 // List returns the caller's own tourdates plus every tourdate belonging to
 // an artist they represent, merged into one list ordered by date. If an
 // "artist_id" query param is given, the list is narrowed to just that
@@ -277,40 +357,13 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var tourID *uuid.UUID
-	if req.TourID != uuid.Nil {
-		var tourOwnerID uuid.UUID
-		err := h.DB.QueryRow(r.Context(), "SELECT user_id FROM tours WHERE id = $1", req.TourID).Scan(&tourOwnerID)
-		if errors.Is(err, pgx.ErrNoRows) {
-			httpx.WriteError(w, http.StatusBadRequest, "tour_id references a nonexistent tour")
-			return
-		} else if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "failed to create tourdate")
-			return
-		}
-		if tourOwnerID != artistID {
-			httpx.WriteError(w, http.StatusBadRequest, "tour_id must belong to the same artist as this tourdate")
-			return
-		}
-		tourID = &req.TourID
+	tourID, ok := h.resolveOwnedFK(r.Context(), w, "tour_id", "tours", req.TourID, artistID)
+	if !ok {
+		return
 	}
-
-	var riderID *uuid.UUID
-	if req.RiderID != uuid.Nil {
-		var riderOwnerID uuid.UUID
-		err := h.DB.QueryRow(r.Context(), "SELECT user_id FROM riders WHERE id = $1", req.RiderID).Scan(&riderOwnerID)
-		if errors.Is(err, pgx.ErrNoRows) {
-			httpx.WriteError(w, http.StatusBadRequest, "rider_id references a nonexistent rider")
-			return
-		} else if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "failed to create tourdate")
-			return
-		}
-		if riderOwnerID != artistID {
-			httpx.WriteError(w, http.StatusBadRequest, "rider_id must belong to the same artist as this tourdate")
-			return
-		}
-		riderID = &req.RiderID
+	riderID, ok := h.resolveOwnedFK(r.Context(), w, "rider_id", "riders", req.RiderID, artistID)
+	if !ok {
+		return
 	}
 
 	row := h.DB.QueryRow(r.Context(),
@@ -388,86 +441,13 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 		addSet("venue", s)
 	}
 	if v, ok := raw["tour_id"]; ok {
-		if string(v) == "null" {
-			addSet("tour_id", nil)
-		} else {
-			var tourID uuid.UUID
-			if err := json.Unmarshal(v, &tourID); err != nil {
-				httpx.WriteError(w, http.StatusBadRequest, "tour_id must be a valid UUID or null")
-				return
-			}
-
-			// Look up the tourdate's current owner through the same
-			// accessibleIDs filter as the final UPDATE, so an inaccessible
-			// tourdate 404s here rather than leaking its existence via a
-			// 400 further down.
-			var currentOwnerID uuid.UUID
-			err := h.DB.QueryRow(r.Context(),
-				"SELECT user_id FROM tourdates WHERE id = $1 AND user_id = ANY($2::uuid[])", id, accessibleIDs,
-			).Scan(&currentOwnerID)
-			if errors.Is(err, pgx.ErrNoRows) {
-				httpx.WriteError(w, http.StatusNotFound, "tourdate not found")
-				return
-			} else if err != nil {
-				httpx.WriteError(w, http.StatusInternalServerError, "failed to update tourdate")
-				return
-			}
-
-			var tourOwnerID uuid.UUID
-			err = h.DB.QueryRow(r.Context(), "SELECT user_id FROM tours WHERE id = $1", tourID).Scan(&tourOwnerID)
-			if errors.Is(err, pgx.ErrNoRows) {
-				httpx.WriteError(w, http.StatusBadRequest, "tour_id references a nonexistent tour")
-				return
-			} else if err != nil {
-				httpx.WriteError(w, http.StatusInternalServerError, "failed to update tourdate")
-				return
-			}
-			if tourOwnerID != currentOwnerID {
-				httpx.WriteError(w, http.StatusBadRequest, "tour_id must belong to the same artist as this tourdate")
-				return
-			}
-			addSet("tour_id", tourID)
+		if ok := h.applyOwnedFKPatch(r.Context(), w, v, "tour_id", "tours", id, accessibleIDs, addSet); !ok {
+			return
 		}
 	}
 	if v, ok := raw["rider_id"]; ok {
-		if string(v) == "null" {
-			addSet("rider_id", nil)
-		} else {
-			var riderID uuid.UUID
-			if err := json.Unmarshal(v, &riderID); err != nil {
-				httpx.WriteError(w, http.StatusBadRequest, "rider_id must be a valid UUID or null")
-				return
-			}
-
-			// Same accessibleIDs-filtered lookup as tour_id above, so an
-			// inaccessible tourdate 404s here rather than leaking its
-			// existence via a 400 further down.
-			var currentOwnerID uuid.UUID
-			err := h.DB.QueryRow(r.Context(),
-				"SELECT user_id FROM tourdates WHERE id = $1 AND user_id = ANY($2::uuid[])", id, accessibleIDs,
-			).Scan(&currentOwnerID)
-			if errors.Is(err, pgx.ErrNoRows) {
-				httpx.WriteError(w, http.StatusNotFound, "tourdate not found")
-				return
-			} else if err != nil {
-				httpx.WriteError(w, http.StatusInternalServerError, "failed to update tourdate")
-				return
-			}
-
-			var riderOwnerID uuid.UUID
-			err = h.DB.QueryRow(r.Context(), "SELECT user_id FROM riders WHERE id = $1", riderID).Scan(&riderOwnerID)
-			if errors.Is(err, pgx.ErrNoRows) {
-				httpx.WriteError(w, http.StatusBadRequest, "rider_id references a nonexistent rider")
-				return
-			} else if err != nil {
-				httpx.WriteError(w, http.StatusInternalServerError, "failed to update tourdate")
-				return
-			}
-			if riderOwnerID != currentOwnerID {
-				httpx.WriteError(w, http.StatusBadRequest, "rider_id must belong to the same artist as this tourdate")
-				return
-			}
-			addSet("rider_id", riderID)
+		if ok := h.applyOwnedFKPatch(r.Context(), w, v, "rider_id", "riders", id, accessibleIDs, addSet); !ok {
+			return
 		}
 	}
 
