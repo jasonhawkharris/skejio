@@ -22,11 +22,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/crypto/bcrypt"
 
 	"skejio/backend/internal/api"
 	"skejio/backend/internal/auth"
 	"skejio/backend/internal/expenses"
 	"skejio/backend/internal/financials"
+	"skejio/backend/internal/password"
 	"skejio/backend/internal/representatives"
 	"skejio/backend/internal/riders"
 	"skejio/backend/internal/tourdates"
@@ -47,6 +49,8 @@ var (
 // executes the package's tests. Call it as the entire body of a package's
 // TestMain: func TestMain(m *testing.M) { testutil.Run(m) }
 func Run(m *testing.M) {
+	password.Cost = bcrypt.MinCost
+
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		url = defaultTestDatabaseURL
