@@ -5,10 +5,10 @@ import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals, fetch, cookies }) => {
 	// Only artists have a dashboard so far - everyone else still lands on
-	// /tourdates. locals.userType is only unset for sessions predating this
+	// /shows. locals.userType is only unset for sessions predating this
 	// cookie, so let those through rather than bouncing a real artist out.
 	if (locals.userType && locals.userType !== 'ARTIST') {
-		redirect(303, '/tourdates');
+		redirect(303, '/shows');
 	}
 	const token = locals.token;
 
@@ -26,7 +26,9 @@ export const load: PageServerLoad = async ({ locals, fetch, cookies }) => {
 		]);
 
 		const today = new Date().toISOString().slice(0, 10);
-		const upcoming = tourdates.filter((td) => td.date >= today).sort((a, b) => (a.date < b.date ? -1 : 1));
+		const upcoming = tourdates
+			.filter((td) => td.date >= today)
+			.sort((a, b) => (a.date < b.date ? -1 : 1));
 
 		return { upcoming, team };
 	} catch (err) {

@@ -5,7 +5,7 @@ import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
 	if (locals.token) {
-		redirect(303, locals.userType === 'ARTIST' ? '/dashboard' : '/tourdates');
+		redirect(303, locals.userType === 'ARTIST' ? '/dashboard' : '/shows');
 	}
 };
 
@@ -43,6 +43,6 @@ export const actions: Actions = {
 		cookies.set('session_token', result.token, cookieOpts);
 		cookies.set('user_type', result.user_type, cookieOpts);
 
-		redirect(303, result.user_type === 'ARTIST' ? '/dashboard' : '/tourdates');
+		redirect(303, result.user_type === 'ARTIST' ? '/dashboard' : '/shows');
 	}
 };

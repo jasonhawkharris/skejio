@@ -7,7 +7,7 @@ const VALID_USER_TYPES = ['ARTIST', 'MANAGER', 'AGENT', 'CREW', 'LABEL'];
 
 export const load: PageServerLoad = async ({ locals }) => {
 	if (locals.token) {
-		redirect(303, locals.userType === 'ARTIST' ? '/dashboard' : '/tourdates');
+		redirect(303, locals.userType === 'ARTIST' ? '/dashboard' : '/shows');
 	}
 };
 
@@ -65,6 +65,6 @@ export const actions: Actions = {
 		cookies.set('session_token', loginResult.token, cookieOpts);
 		cookies.set('user_type', loginResult.user_type, cookieOpts);
 
-		redirect(303, loginResult.user_type === 'ARTIST' ? '/dashboard' : '/tourdates');
+		redirect(303, loginResult.user_type === 'ARTIST' ? '/dashboard' : '/shows');
 	}
 };

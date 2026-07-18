@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { untrack } from 'svelte';
+	import FormError from '$lib/components/FormError.svelte';
+	import FormField from '$lib/components/FormField.svelte';
+	import { formatClockTime } from '$lib/format';
 	import type { TourDate } from '$lib/types';
 	import type { ActionData, PageData } from './$types';
 
@@ -60,16 +63,13 @@
 		return state ? `${city}, ${state}` : city;
 	}
 
-	const CLOCK_FIELDS = new Set<keyof TourDate>(['doors', 'show_start', 'show_end', 'load_in', 'sound_check']);
-
-	// Backend clock fields come back as 24h "HH:MM" - render US-style 12h with AM/PM.
-	function formatClockTime(t: string): string {
-		const [hStr, mStr] = t.split(':');
-		let h = Number(hStr);
-		const period = h >= 12 ? 'PM' : 'AM';
-		h = h % 12 || 12;
-		return `${h}:${mStr} ${period}`;
-	}
+	const CLOCK_FIELDS = new Set<keyof TourDate>([
+		'doors',
+		'show_start',
+		'show_end',
+		'load_in',
+		'sound_check'
+	]);
 
 	function detailValue(key: keyof TourDate, value: string | null): string {
 		if (value == null) return '—';
@@ -198,87 +198,44 @@
 
 {#snippet basicFields(values: EditableFields)}
 	<div class="field-grid">
-		<label>
-			<span>Date</span>
-			<input type="date" name="date" value={values.date} required />
-		</label>
-		<label>
-			<span>City</span>
-			<input type="text" name="city" value={values.city} required />
-		</label>
-		<label>
-			<span>State</span>
-			<input type="text" name="state" value={values.state ?? ''} />
-		</label>
-		<label>
-			<span>Venue</span>
-			<input type="text" name="venue" value={values.venue} required />
-		</label>
+		<FormField label="Date" name="date" type="date" value={values.date} required />
+		<FormField label="City" name="city" value={values.city} required />
+		<FormField label="State" name="state" value={values.state} />
+		<FormField label="Venue" name="venue" value={values.venue} required />
 	</div>
 {/snippet}
 
 {#snippet advancedFields(values: EditableFields)}
 	<div class="field-grid">
-		<label>
-			<span>POC name</span>
-			<input type="text" name="poc_name" value={values.poc_name ?? ''} />
-		</label>
-		<label>
-			<span>POC number</span>
-			<input
-				type="text"
-				inputmode="tel"
-				name="poc_number"
-				value={values.poc_number ?? ''}
-				oninput={formatPhoneInput}
-			/>
-		</label>
-		<label>
-			<span>POC email</span>
-			<input type="email" name="poc_email" value={values.poc_email ?? ''} />
-		</label>
-		<label>
-			<span>Promoter name</span>
-			<input type="text" name="promoter_name" value={values.promoter_name ?? ''} />
-		</label>
-		<label>
-			<span>Promoter number</span>
-			<input
-				type="text"
-				inputmode="tel"
-				name="promoter_number"
-				value={values.promoter_number ?? ''}
-				oninput={formatPhoneInput}
-			/>
-		</label>
-		<label>
-			<span>Promoter email</span>
-			<input type="email" name="promoter_email" value={values.promoter_email ?? ''} />
-		</label>
-		<label>
-			<span>Doors</span>
-			<input type="time" name="doors" value={values.doors ?? ''} />
-		</label>
-		<label>
-			<span>Show start</span>
-			<input type="time" name="show_start" value={values.show_start ?? ''} />
-		</label>
-		<label>
-			<span>Show end</span>
-			<input type="time" name="show_end" value={values.show_end ?? ''} />
-		</label>
-		<label>
-			<span>Load-in</span>
-			<input type="time" name="load_in" value={values.load_in ?? ''} />
-		</label>
-		<label>
-			<span>Sound check</span>
-			<input type="time" name="sound_check" value={values.sound_check ?? ''} />
-		</label>
-		<label class="span-2">
-			<span>Advance</span>
-			<input type="text" name="advance" value={values.advance ?? ''} />
-		</label>
+		<FormField label="POC name" name="poc_name" value={values.poc_name} />
+		<FormField
+			label="POC number"
+			name="poc_number"
+			inputmode="tel"
+			value={values.poc_number}
+			oninput={formatPhoneInput}
+		/>
+		<FormField label="POC email" name="poc_email" type="email" value={values.poc_email} />
+		<FormField label="Promoter name" name="promoter_name" value={values.promoter_name} />
+		<FormField
+			label="Promoter number"
+			name="promoter_number"
+			inputmode="tel"
+			value={values.promoter_number}
+			oninput={formatPhoneInput}
+		/>
+		<FormField
+			label="Promoter email"
+			name="promoter_email"
+			type="email"
+			value={values.promoter_email}
+		/>
+		<FormField label="Doors" name="doors" type="time" value={values.doors} />
+		<FormField label="Show start" name="show_start" type="time" value={values.show_start} />
+		<FormField label="Show end" name="show_end" type="time" value={values.show_end} />
+		<FormField label="Load-in" name="load_in" type="time" value={values.load_in} />
+		<FormField label="Sound check" name="sound_check" type="time" value={values.sound_check} />
+		<FormField label="Advance" name="advance" value={values.advance} wide />
 	</div>
 {/snippet}
 
@@ -317,11 +274,13 @@
 
 				{@render basicFields(show)}
 
-				{#if form?.error}
-					<p class="error">{form.error}</p>
-				{/if}
+				<FormError message={form?.error} spaced />
 
-				<button type="button" class="advanced-toggle" onclick={() => (showAdvanced = !showAdvanced)}>
+				<button
+					type="button"
+					class="advanced-toggle"
+					onclick={() => (showAdvanced = !showAdvanced)}
+				>
 					{showAdvanced ? '− Hide advanced fields' : '+ Show advanced fields'}
 				</button>
 
@@ -369,7 +328,7 @@
 				}}
 			>
 				{#if data.artists.length > 0}
-					<label class="artist-field">
+					<label class="field artist-field">
 						<span>Artist</span>
 						<select name="artist_id" required>
 							<option value="" disabled selected>Choose an artist</option>
@@ -382,9 +341,7 @@
 
 				{@render basicFields(BLANK_SHOW)}
 
-				{#if form?.error}
-					<p class="error">{form.error}</p>
-				{/if}
+				<FormError message={form?.error} spaced />
 
 				<button
 					type="button"
@@ -614,43 +571,8 @@
 		gap: 1rem;
 	}
 
-	.span-2 {
-		grid-column: 1 / -1;
-	}
-
-	label {
-		display: flex;
-		flex-direction: column;
-		gap: 0.4rem;
-		font-size: 0.85rem;
-		font-weight: 600;
-		color: var(--color-text-muted);
-	}
-
 	.artist-field {
 		margin-bottom: 1rem;
-	}
-
-	input,
-	select {
-		font: inherit;
-		padding: 0.6rem 0.7rem;
-		border-radius: var(--radius-sm);
-		border: 1px solid var(--color-border-strong);
-		background: var(--color-bg);
-		color: var(--color-text);
-	}
-
-	select option {
-		background: var(--color-surface);
-		color: var(--color-text);
-	}
-
-	input:focus,
-	select:focus {
-		outline: 2px solid var(--color-accent);
-		outline-offset: -1px;
-		border-color: var(--color-accent);
 	}
 
 	.advanced-toggle {
@@ -700,14 +622,5 @@
 
 	.buttons button:not(.primary):hover {
 		background: var(--color-surface-hover);
-	}
-
-	.error {
-		margin: 1rem 0 0;
-		padding: 0.6rem 0.75rem;
-		border-radius: var(--radius-sm);
-		background: var(--color-danger-bg);
-		color: var(--color-danger-text);
-		font-size: 0.85rem;
 	}
 </style>

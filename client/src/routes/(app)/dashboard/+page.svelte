@@ -1,11 +1,25 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
+	import { formatClockTime } from '$lib/format';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
 
-	const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+	const MONTHS = [
+		'JAN',
+		'FEB',
+		'MAR',
+		'APR',
+		'MAY',
+		'JUN',
+		'JUL',
+		'AUG',
+		'SEP',
+		'OCT',
+		'NOV',
+		'DEC'
+	];
 
 	function dateBadge(dateStr: string) {
 		const [, m, d] = dateStr.split('-').map(Number);
@@ -13,15 +27,14 @@
 	}
 
 	function formatShowTime(t: string | null): string | null {
-		if (!t) return null;
-		const [hStr, mStr] = t.split(':');
-		let h = Number(hStr);
-		const period = h >= 12 ? 'PM' : 'AM';
-		h = h % 12 || 12;
-		return `${h}:${mStr} ${period}`;
+		return t ? formatClockTime(t) : null;
 	}
 
-	const ROLE_LABELS: Record<string, string> = { MANAGER: 'Manager', AGENT: 'Agent', LABEL: 'Label' };
+	const ROLE_LABELS: Record<string, string> = {
+		MANAGER: 'Manager',
+		AGENT: 'Agent',
+		LABEL: 'Label'
+	};
 
 	function initials(name: string): string {
 		return name
@@ -37,13 +50,13 @@
 	<section class="frame">
 		<div class="section-header">
 			<h1>Upcoming shows</h1>
-			<a class="all-link" href={resolve('/tourdates')}>View all tourdates →</a>
+			<a class="all-link" href={resolve('/shows')}>View all tourdates →</a>
 		</div>
 
 		{#if data.upcoming.length === 0}
 			<div class="card empty">
 				<p>No upcoming shows on the books.</p>
-				<a class="new-link" href={resolve('/tourdates/new')}>+ Add a tourdate</a>
+				<a class="new-link" href={resolve('/shows')}>+ Add a tourdate</a>
 			</div>
 		{:else}
 			<ul class="show-list">
@@ -51,11 +64,7 @@
 					{@const badge = dateBadge(td.date)}
 					{@const showTime = formatShowTime(td.show_start)}
 					<li>
-						<button
-							type="button"
-							class="show-row"
-							onclick={() => goto(resolve('/tourdates/[id]', { id: td.id }))}
-						>
+						<button type="button" class="show-row" onclick={() => goto(resolve('/shows'))}>
 							<span class="date-badge">
 								<span class="badge-month">{badge.month}</span>
 								<span class="badge-day">{badge.day}</span>
