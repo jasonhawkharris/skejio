@@ -92,6 +92,7 @@ type TourDate struct {
 	ShowEnd        *ClockTime `json:"show_end"`
 	LoadIn         *ClockTime `json:"load_in"`
 	SoundCheck     *ClockTime `json:"sound_check"`
+	Advance        *string    `json:"advance"`
 	UserID         uuid.UUID  `json:"user_id"`
 	TourID         *uuid.UUID `json:"tour_id"`
 	RiderID        *uuid.UUID `json:"rider_id"`
@@ -109,14 +110,14 @@ func scanTourDate(row pgx.Row) (TourDate, error) {
 		&td.ID, &d, &td.City, &td.State, &td.Venue,
 		&td.POCName, &td.POCNumber, &td.POCEmail,
 		&td.PromoterName, &td.PromoterNumber, &td.PromoterEmail,
-		&td.Doors, &td.ShowStart, &td.ShowEnd, &td.LoadIn, &td.SoundCheck,
+		&td.Doors, &td.ShowStart, &td.ShowEnd, &td.LoadIn, &td.SoundCheck, &td.Advance,
 		&td.UserID, &td.TourID, &td.RiderID, &td.CreatedAt,
 	)
 	td.Date = Date(d)
 	return td, err
 }
 
-const tourDateColumns = "id, date, city, state, venue, poc_name, poc_number, poc_email, promoter_name, promoter_number, promoter_email, doors, show_start, show_end, load_in, sound_check, user_id, tour_id, rider_id, created_at"
+const tourDateColumns = "id, date, city, state, venue, poc_name, poc_number, poc_email, promoter_name, promoter_number, promoter_email, doors, show_start, show_end, load_in, sound_check, advance, user_id, tour_id, rider_id, created_at"
 
 // AccessibleArtistIDs returns the set of user ids whose tourdates the caller
 // may access: their own id, plus every artist they represent (if any).
@@ -339,6 +340,7 @@ type createTourDateRequest struct {
 	ShowEnd        *ClockTime `json:"show_end"`
 	LoadIn         *ClockTime `json:"load_in"`
 	SoundCheck     *ClockTime `json:"sound_check"`
+	Advance        *string    `json:"advance"`
 	ArtistID       uuid.UUID  `json:"artist_id"`
 	TourID         uuid.UUID  `json:"tour_id"`
 	RiderID        uuid.UUID  `json:"rider_id"`
@@ -381,12 +383,12 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	row := h.DB.QueryRow(r.Context(),
-		"INSERT INTO tourdates (date, city, state, venue, poc_name, poc_number, poc_email, promoter_name, promoter_number, promoter_email, doors, show_start, show_end, load_in, sound_check, user_id, tour_id, rider_id) "+
-			"VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING "+tourDateColumns,
+		"INSERT INTO tourdates (date, city, state, venue, poc_name, poc_number, poc_email, promoter_name, promoter_number, promoter_email, doors, show_start, show_end, load_in, sound_check, advance, user_id, tour_id, rider_id) "+
+			"VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING "+tourDateColumns,
 		time.Time(req.Date), req.City, req.State, req.Venue,
 		req.POCName, req.POCNumber, req.POCEmail,
 		req.PromoterName, req.PromoterNumber, req.PromoterEmail,
-		req.Doors, req.ShowStart, req.ShowEnd, req.LoadIn, req.SoundCheck,
+		req.Doors, req.ShowStart, req.ShowEnd, req.LoadIn, req.SoundCheck, req.Advance,
 		artistID, tourID, riderID)
 	td, err := scanTourDate(row)
 	if err != nil {
@@ -399,9 +401,9 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 
 // Patch applies a partial update. A field omitted from the JSON body is left
 // unchanged; a field present but set to null clears it (only valid for the
-// nullable "state", "poc_*", and "promoter_*" columns). Ownership is not
-// patchable. A tourdate belonging to an artist the caller doesn't represent
-// (and isn't themselves) 404s, same as Get.
+// nullable "state", "advance", "poc_*", and "promoter_*" columns). Ownership
+// is not patchable. A tourdate belonging to an artist the caller doesn't
+// represent (and isn't themselves) 404s, same as Get.
 func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(mux.Vars(r)["id"])
 	if err != nil {
@@ -458,11 +460,11 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// state and the POC/promoter contact fields are all nullable TEXT
-	// columns with the same partial-update semantics: omitted leaves the
-	// column unchanged, explicit null clears it.
+	// state, advance, and the POC/promoter contact fields are all nullable
+	// TEXT columns with the same partial-update semantics: omitted leaves
+	// the column unchanged, explicit null clears it.
 	nullableStringColumns := []string{
-		"state", "poc_name", "poc_number", "poc_email",
+		"state", "advance", "poc_name", "poc_number", "poc_email",
 		"promoter_name", "promoter_number", "promoter_email",
 	}
 	for _, column := range nullableStringColumns {

@@ -114,6 +114,27 @@ func TestCreateTourDate_PocAndPromoterFields(t *testing.T) {
 	}
 }
 
+func TestCreateTourDate_AdvanceField(t *testing.T) {
+	testutil.TruncateTables(t)
+	_, token := testutil.CreateAndLoginTestUser(t)
+
+	rec := testutil.DoAuthRequest(http.MethodPost, "/tourdates", `{
+		"date":"2026-09-15","city":"Austin","venue":"Moody Center",
+		"advance":"https://drive.google.com/file/d/abc123"
+	}`, token)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var td tourdates.TourDate
+	if err := json.Unmarshal(rec.Body.Bytes(), &td); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if td.Advance == nil || *td.Advance != "https://drive.google.com/file/d/abc123" {
+		t.Fatalf("expected advance to be set, got %+v", td.Advance)
+	}
+}
+
 func TestCreateTourDate_MissingRequiredFields(t *testing.T) {
 	testutil.TruncateTables(t)
 	_, token := testutil.CreateAndLoginTestUser(t)
@@ -322,6 +343,31 @@ func TestPatchTourDate_SetAndClearPocAndPromoterFields(t *testing.T) {
 	}
 	if td.POCNumber == nil || *td.POCNumber != "555-0100" {
 		t.Fatalf("expected untouched poc_number to survive, got %+v", td.POCNumber)
+	}
+}
+
+func TestPatchTourDate_SetAndClearAdvance(t *testing.T) {
+	testutil.TruncateTables(t)
+	_, token := testutil.CreateAndLoginTestUser(t)
+	created := testutil.CreateTestTourDate(t, token, `{"date":"2026-09-15","city":"Austin","venue":"Moody Center"}`)
+
+	rec := testutil.DoAuthRequest(http.MethodPatch, "/tourdates/"+created.ID.String(), `{"advance":"Emailed advance sheet from tour manager, see inbox"}`, token)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var td tourdates.TourDate
+	json.Unmarshal(rec.Body.Bytes(), &td)
+	if td.Advance == nil || *td.Advance != "Emailed advance sheet from tour manager, see inbox" {
+		t.Fatalf("expected advance to be set, got %+v", td.Advance)
+	}
+
+	rec = testutil.DoAuthRequest(http.MethodPatch, "/tourdates/"+created.ID.String(), `{"advance":null}`, token)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	json.Unmarshal(rec.Body.Bytes(), &td)
+	if td.Advance != nil {
+		t.Fatalf("expected advance to be cleared, got %v", *td.Advance)
 	}
 }
 
