@@ -90,6 +90,8 @@ type TourDate struct {
 	Doors          *ClockTime `json:"doors"`
 	ShowStart      *ClockTime `json:"show_start"`
 	ShowEnd        *ClockTime `json:"show_end"`
+	LoadIn         *ClockTime `json:"load_in"`
+	SoundCheck     *ClockTime `json:"sound_check"`
 	UserID         uuid.UUID  `json:"user_id"`
 	TourID         *uuid.UUID `json:"tour_id"`
 	RiderID        *uuid.UUID `json:"rider_id"`
@@ -107,14 +109,14 @@ func scanTourDate(row pgx.Row) (TourDate, error) {
 		&td.ID, &d, &td.City, &td.State, &td.Venue,
 		&td.POCName, &td.POCNumber, &td.POCEmail,
 		&td.PromoterName, &td.PromoterNumber, &td.PromoterEmail,
-		&td.Doors, &td.ShowStart, &td.ShowEnd,
+		&td.Doors, &td.ShowStart, &td.ShowEnd, &td.LoadIn, &td.SoundCheck,
 		&td.UserID, &td.TourID, &td.RiderID, &td.CreatedAt,
 	)
 	td.Date = Date(d)
 	return td, err
 }
 
-const tourDateColumns = "id, date, city, state, venue, poc_name, poc_number, poc_email, promoter_name, promoter_number, promoter_email, doors, show_start, show_end, user_id, tour_id, rider_id, created_at"
+const tourDateColumns = "id, date, city, state, venue, poc_name, poc_number, poc_email, promoter_name, promoter_number, promoter_email, doors, show_start, show_end, load_in, sound_check, user_id, tour_id, rider_id, created_at"
 
 // AccessibleArtistIDs returns the set of user ids whose tourdates the caller
 // may access: their own id, plus every artist they represent (if any).
@@ -335,6 +337,8 @@ type createTourDateRequest struct {
 	Doors          *ClockTime `json:"doors"`
 	ShowStart      *ClockTime `json:"show_start"`
 	ShowEnd        *ClockTime `json:"show_end"`
+	LoadIn         *ClockTime `json:"load_in"`
+	SoundCheck     *ClockTime `json:"sound_check"`
 	ArtistID       uuid.UUID  `json:"artist_id"`
 	TourID         uuid.UUID  `json:"tour_id"`
 	RiderID        uuid.UUID  `json:"rider_id"`
@@ -377,12 +381,12 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	row := h.DB.QueryRow(r.Context(),
-		"INSERT INTO tourdates (date, city, state, venue, poc_name, poc_number, poc_email, promoter_name, promoter_number, promoter_email, doors, show_start, show_end, user_id, tour_id, rider_id) "+
-			"VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING "+tourDateColumns,
+		"INSERT INTO tourdates (date, city, state, venue, poc_name, poc_number, poc_email, promoter_name, promoter_number, promoter_email, doors, show_start, show_end, load_in, sound_check, user_id, tour_id, rider_id) "+
+			"VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING "+tourDateColumns,
 		time.Time(req.Date), req.City, req.State, req.Venue,
 		req.POCName, req.POCNumber, req.POCEmail,
 		req.PromoterName, req.PromoterNumber, req.PromoterEmail,
-		req.Doors, req.ShowStart, req.ShowEnd,
+		req.Doors, req.ShowStart, req.ShowEnd, req.LoadIn, req.SoundCheck,
 		artistID, tourID, riderID)
 	td, err := scanTourDate(row)
 	if err != nil {
@@ -478,9 +482,10 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 		pb.Set(column, s)
 	}
 
-	// doors, show_start, and show_end are nullable TIME columns with the
-	// same partial-update semantics as the string columns above.
-	clockColumns := []string{"doors", "show_start", "show_end"}
+	// doors, show_start, show_end, load_in, and sound_check are nullable
+	// TIME columns with the same partial-update semantics as the string
+	// columns above.
+	clockColumns := []string{"doors", "show_start", "show_end", "load_in", "sound_check"}
 	for _, column := range clockColumns {
 		v, ok := raw[column]
 		if !ok {
