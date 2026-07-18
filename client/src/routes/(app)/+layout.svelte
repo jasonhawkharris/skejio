@@ -6,7 +6,7 @@
 
 	const NAV_ITEMS = [
 		{ label: 'Dashboard', href: '/dashboard' },
-		{ label: 'Tours', href: '/tours' },
+		{ label: 'Shows', href: '/shows' },
 		{ label: 'Financials', href: '/financials' },
 		{ label: 'Merch', href: '/merch' },
 		{ label: 'Riders', href: '/riders' },
@@ -15,9 +15,6 @@
 </script>
 
 <div class="shell">
-	<div class="glow glow-a"></div>
-	<div class="glow glow-b"></div>
-
 	<aside class="sidebar">
 		<span class="logo">Skejio</span>
 
@@ -45,42 +42,10 @@
 
 <style>
 	.shell {
-		position: relative;
-		overflow: hidden;
 		min-height: 100dvh;
 		display: flex;
-		background: #08080c;
-		color: #e7e7ee;
-	}
-
-	.glow {
-		position: absolute;
-		border-radius: 50%;
-		filter: blur(90px);
-		pointer-events: none;
-		z-index: 0;
-	}
-
-	.glow-a {
-		width: 500px;
-		height: 500px;
-		top: -150px;
-		left: -100px;
-		background: radial-gradient(circle, rgba(139, 92, 246, 0.35), transparent 70%);
-	}
-
-	.glow-b {
-		width: 600px;
-		height: 600px;
-		bottom: -200px;
-		right: -150px;
-		background: radial-gradient(circle, rgba(56, 189, 248, 0.22), transparent 70%);
-	}
-
-	.sidebar,
-	.content {
-		position: relative;
-		z-index: 1;
+		background: var(--color-bg);
+		color: var(--color-text);
 	}
 
 	.sidebar {
@@ -90,14 +55,16 @@
 		flex-direction: column;
 		gap: 2rem;
 		padding: 1.75rem 1.25rem;
-		border-right: 1px solid rgba(255, 255, 255, 0.08);
+		background: var(--color-surface);
+		border-right: 1px solid var(--color-border);
 	}
 
 	.logo {
 		font-family: var(--font-display);
 		font-weight: 700;
-		font-size: 1.25rem;
-		letter-spacing: -0.02em;
+		font-size: 1.15rem;
+		letter-spacing: -0.01em;
+		text-transform: uppercase;
 		padding: 0 0.5rem;
 	}
 
@@ -111,51 +78,53 @@
 		padding: 0;
 		display: flex;
 		flex-direction: column;
-		gap: 0.25rem;
+		gap: 0.15rem;
 	}
 
 	nav a {
 		display: block;
 		padding: 0.6rem 0.75rem;
-		border-radius: 10px;
-		font-size: 0.92rem;
+		border-radius: var(--radius-sm);
+		border-left: 2px solid transparent;
+		font-size: 0.9rem;
 		font-weight: 500;
-		color: #9d9dac;
+		color: var(--color-text-muted);
 		text-decoration: none;
 		transition:
-			background 0.15s ease,
-			color 0.15s ease;
+			background 0.1s ease,
+			color 0.1s ease,
+			border-color 0.1s ease;
 	}
 
 	nav a:hover {
-		background: rgba(255, 255, 255, 0.05);
-		color: #e7e7ee;
+		background: var(--color-surface-hover);
+		color: var(--color-text);
 	}
 
 	nav a.active {
-		background: rgba(139, 92, 246, 0.14);
-		color: #f4f4f8;
+		background: var(--color-surface-hover);
+		border-left-color: var(--color-accent);
+		color: var(--color-text);
 	}
 
 	.logout {
 		font: inherit;
-		font-size: 0.9rem;
+		font-size: 0.85rem;
 		font-weight: 500;
-		color: #e7e7ee;
+		color: var(--color-text);
 		background: transparent;
 		width: 100%;
 		padding: 0.55rem 0.75rem;
-		border: 1px solid rgba(231, 231, 238, 0.2);
-		border-radius: 999px;
+		border: 1px solid var(--color-border-strong);
+		border-radius: var(--radius-sm);
 		cursor: pointer;
 		transition:
-			border-color 0.15s ease,
-			background 0.15s ease;
+			border-color 0.1s ease,
+			background 0.1s ease;
 	}
 
 	.logout:hover {
-		border-color: rgba(231, 231, 238, 0.5);
-		background: rgba(231, 231, 238, 0.06);
+		background: var(--color-surface-hover);
 	}
 
 	.content {

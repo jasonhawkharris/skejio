@@ -72,9 +72,6 @@
 {/snippet}
 
 <div class="page">
-	<div class="glow glow-a"></div>
-	<div class="glow glow-b"></div>
-
 	<header class="topbar">
 		<span class="logo">Skejio</span>
 		<form method="POST" action="?/logout">
@@ -109,41 +106,9 @@
 
 <style>
 	.page {
-		position: relative;
-		overflow: hidden;
 		min-height: 100dvh;
-		background: #08080c;
-		color: #e7e7ee;
-	}
-
-	.glow {
-		position: absolute;
-		border-radius: 50%;
-		filter: blur(90px);
-		pointer-events: none;
-		z-index: 0;
-	}
-
-	.glow-a {
-		width: 500px;
-		height: 500px;
-		top: -150px;
-		left: -100px;
-		background: radial-gradient(circle, rgba(139, 92, 246, 0.35), transparent 70%);
-	}
-
-	.glow-b {
-		width: 600px;
-		height: 600px;
-		bottom: -200px;
-		right: -150px;
-		background: radial-gradient(circle, rgba(56, 189, 248, 0.22), transparent 70%);
-	}
-
-	.topbar,
-	.content {
-		position: relative;
-		z-index: 1;
+		background: var(--color-bg);
+		color: var(--color-text);
 	}
 
 	.topbar {
@@ -151,39 +116,38 @@
 		align-items: center;
 		justify-content: space-between;
 		padding: 1.5rem clamp(1.5rem, 5vw, 4rem);
+		border-bottom: 1px solid var(--color-border);
 	}
 
 	.logo {
 		font-family: var(--font-display);
 		font-weight: 700;
-		font-size: 1.25rem;
-		letter-spacing: -0.02em;
+		font-size: 1.15rem;
+		letter-spacing: -0.01em;
+		text-transform: uppercase;
 	}
 
 	.logout {
 		font: inherit;
-		font-size: 0.9rem;
+		font-size: 0.85rem;
 		font-weight: 500;
-		color: #e7e7ee;
+		color: var(--color-text);
 		background: transparent;
 		padding: 0.5rem 1.1rem;
-		border: 1px solid rgba(231, 231, 238, 0.2);
-		border-radius: 999px;
+		border: 1px solid var(--color-border-strong);
+		border-radius: var(--radius-sm);
 		cursor: pointer;
-		transition:
-			border-color 0.15s ease,
-			background 0.15s ease;
+		transition: background 0.1s ease;
 	}
 
 	.logout:hover {
-		border-color: rgba(231, 231, 238, 0.5);
-		background: rgba(231, 231, 238, 0.06);
+		background: var(--color-surface-hover);
 	}
 
 	.content {
 		max-width: 60rem;
 		margin: 0 auto;
-		padding: 0 clamp(1.5rem, 5vw, 4rem) 4rem;
+		padding: 2rem clamp(1.5rem, 5vw, 4rem) 4rem;
 		display: flex;
 		flex-direction: column;
 		gap: 1.5rem;
@@ -198,8 +162,8 @@
 	}
 
 	.content h1 {
-		font-size: 1.75rem;
-		letter-spacing: -0.02em;
+		font-size: 1.5rem;
+		letter-spacing: -0.01em;
 		margin: 0;
 	}
 
@@ -207,38 +171,34 @@
 		flex-shrink: 0;
 		font-size: 0.85rem;
 		font-weight: 600;
-		color: white;
+		color: var(--color-accent-text);
 		text-decoration: none;
 		padding: 0.55rem 1.1rem;
-		border-radius: 999px;
-		background: linear-gradient(135deg, #8b5cf6, #6366f1);
-		box-shadow: 0 12px 30px -10px rgba(139, 92, 246, 0.55);
-		transition:
-			transform 0.15s ease,
-			box-shadow 0.15s ease;
+		border-radius: var(--radius-sm);
+		background: var(--color-accent);
+		transition: background 0.1s ease;
 	}
 
 	.new-link:hover {
-		transform: translateY(-1px);
-		box-shadow: 0 16px 34px -8px rgba(139, 92, 246, 0.65);
+		background: var(--color-accent-hover);
 	}
 
 	.card {
-		background: rgba(255, 255, 255, 0.03);
-		border: 1px solid rgba(255, 255, 255, 0.08);
-		border-radius: 16px;
+		background: var(--color-surface);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-lg);
 		padding: 1.5rem;
 	}
 
 	.card h2 {
 		font-size: 1.05rem;
 		margin: 0 0 1rem;
-		color: #f4f4f8;
+		color: var(--color-text);
 	}
 
 	.empty p {
 		margin: 0;
-		color: #9d9dac;
+		color: var(--color-text-muted);
 		font-size: 0.9rem;
 	}
 
@@ -253,15 +213,15 @@
 		letter-spacing: 0.06em;
 		font-size: 0.72rem;
 		font-weight: 600;
-		color: #9d9dac;
+		color: var(--color-text-muted);
 		padding: 0 0.75rem 0.6rem;
-		border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+		border-bottom: 1px solid var(--color-border);
 	}
 
 	tbody td {
 		padding: 0.7rem 0.75rem;
 		font-size: 0.9rem;
-		border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+		border-bottom: 1px solid var(--color-border);
 	}
 
 	tbody tr:last-child td {
@@ -273,11 +233,11 @@
 	}
 
 	.row-link:hover td {
-		background: rgba(255, 255, 255, 0.04);
+		background: var(--color-surface-hover);
 	}
 
 	.row-link:focus-visible {
-		outline: 2px solid #a78bfa;
+		outline: 2px solid var(--color-accent);
 		outline-offset: -2px;
 	}
 
@@ -289,18 +249,15 @@
 		display: inline-block;
 		font-size: 0.8rem;
 		font-weight: 600;
-		color: #a78bfa;
+		color: var(--color-accent);
 		text-decoration: none;
 		padding: 0.3rem 0.75rem;
-		border: 1px solid rgba(167, 139, 250, 0.35);
-		border-radius: 999px;
-		transition:
-			border-color 0.15s ease,
-			background 0.15s ease;
+		border: 1px solid var(--color-border-strong);
+		border-radius: var(--radius-sm);
+		transition: background 0.1s ease;
 	}
 
 	.edit-link:hover {
-		border-color: rgba(167, 139, 250, 0.7);
-		background: rgba(167, 139, 250, 0.1);
+		background: var(--color-surface-hover);
 	}
 </style>

@@ -120,33 +120,33 @@
 	}
 
 	.page h1 {
-		font-size: 1.75rem;
-		letter-spacing: -0.02em;
+		font-size: 1.5rem;
+		letter-spacing: -0.01em;
 		margin: 0;
 	}
 
 	.page h2 {
-		font-size: 1.1rem;
+		font-size: 1.05rem;
 		letter-spacing: -0.01em;
 		margin: 0;
-		color: #f4f4f8;
+		color: var(--color-text);
 	}
 
 	.all-link {
 		font-size: 0.85rem;
 		font-weight: 500;
-		color: #9d9dac;
+		color: var(--color-text-muted);
 		text-decoration: none;
 	}
 
 	.all-link:hover {
-		color: #e7e7ee;
+		color: var(--color-text);
 	}
 
 	.card {
-		background: rgba(255, 255, 255, 0.03);
-		border: 1px solid rgba(255, 255, 255, 0.08);
-		border-radius: 16px;
+		background: var(--color-surface);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-lg);
 		padding: 1.5rem;
 	}
 
@@ -159,19 +159,22 @@
 
 	.empty p {
 		margin: 0;
-		color: #9d9dac;
+		color: var(--color-text-muted);
 		font-size: 0.9rem;
 	}
 
 	.new-link {
 		font-size: 0.85rem;
 		font-weight: 600;
-		color: white;
+		color: var(--color-accent-text);
 		text-decoration: none;
 		padding: 0.55rem 1.1rem;
-		border-radius: 999px;
-		background: linear-gradient(135deg, #8b5cf6, #6366f1);
-		box-shadow: 0 12px 30px -10px rgba(139, 92, 246, 0.55);
+		border-radius: var(--radius-sm);
+		background: var(--color-accent);
+	}
+
+	.new-link:hover {
+		background: var(--color-accent-hover);
 	}
 
 	.show-list {
@@ -189,25 +192,22 @@
 		align-items: center;
 		gap: 1.1rem;
 		padding: 0.85rem 1.1rem;
-		background: rgba(255, 255, 255, 0.03);
-		border: 1px solid rgba(255, 255, 255, 0.08);
-		border-radius: 14px;
+		background: var(--color-surface);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-md);
 		font: inherit;
 		color: inherit;
 		text-align: left;
 		cursor: pointer;
-		transition:
-			border-color 0.15s ease,
-			background 0.15s ease;
+		transition: border-color 0.1s ease;
 	}
 
 	.show-row:hover {
-		background: rgba(255, 255, 255, 0.05);
-		border-color: rgba(167, 139, 250, 0.4);
+		border-color: var(--color-border-strong);
 	}
 
 	.show-row:focus-visible {
-		outline: 2px solid #a78bfa;
+		outline: 2px solid var(--color-accent);
 		outline-offset: 2px;
 	}
 
@@ -219,16 +219,16 @@
 		align-items: center;
 		justify-content: center;
 		padding: 0.4rem 0;
-		border-radius: 10px;
-		background: rgba(139, 92, 246, 0.12);
-		border: 1px solid rgba(167, 139, 250, 0.3);
+		border-radius: var(--radius-sm);
+		background: var(--color-bg);
+		border: 1px solid var(--color-border-strong);
 	}
 
 	.badge-month {
 		font-size: 0.65rem;
 		font-weight: 700;
 		letter-spacing: 0.06em;
-		color: #a78bfa;
+		color: var(--color-accent);
 	}
 
 	.badge-day {
@@ -236,7 +236,7 @@
 		font-size: 1.15rem;
 		font-weight: 700;
 		line-height: 1.1;
-		color: #f4f4f8;
+		color: var(--color-text);
 	}
 
 	.show-info {
@@ -250,7 +250,7 @@
 	.venue {
 		font-weight: 600;
 		font-size: 0.95rem;
-		color: #f4f4f8;
+		color: var(--color-text);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -258,14 +258,14 @@
 
 	.location {
 		font-size: 0.82rem;
-		color: #9d9dac;
+		color: var(--color-text-muted);
 	}
 
 	.show-time {
 		flex-shrink: 0;
 		font-size: 0.82rem;
 		font-weight: 600;
-		color: #9d9dac;
+		color: var(--color-text-muted);
 	}
 
 	.team-list {
@@ -282,9 +282,9 @@
 		align-items: center;
 		gap: 0.9rem;
 		padding: 0.75rem 1.1rem;
-		background: rgba(255, 255, 255, 0.03);
-		border: 1px solid rgba(255, 255, 255, 0.08);
-		border-radius: 14px;
+		background: var(--color-surface);
+		border: 1px solid var(--color-border);
+		border-radius: var(--radius-md);
 	}
 
 	.avatar {
@@ -295,11 +295,11 @@
 		align-items: center;
 		justify-content: center;
 		border-radius: 999px;
-		background: rgba(56, 189, 248, 0.14);
-		border: 1px solid rgba(125, 211, 252, 0.3);
+		background: var(--color-bg);
+		border: 1px solid var(--color-border-strong);
 		font-size: 0.78rem;
 		font-weight: 700;
-		color: #7dd3fc;
+		color: var(--color-accent);
 	}
 
 	.rep-name {
@@ -307,7 +307,7 @@
 		min-width: 0;
 		font-weight: 600;
 		font-size: 0.92rem;
-		color: #f4f4f8;
+		color: var(--color-text);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -318,9 +318,9 @@
 		font-size: 0.72rem;
 		font-weight: 600;
 		letter-spacing: 0.03em;
-		color: #9d9dac;
+		color: var(--color-text-muted);
 		padding: 0.3rem 0.7rem;
-		border-radius: 999px;
-		border: 1px solid rgba(255, 255, 255, 0.12);
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--color-border-strong);
 	}
 </style>

@@ -6,9 +6,6 @@
 </script>
 
 <div class="page">
-	<div class="glow glow-a"></div>
-	<div class="glow glow-b"></div>
-
 	<div class="card">
 		{#if data.artistName}
 			<p class="eyebrow">{data.artistName}</p>
@@ -43,52 +40,22 @@
 
 <style>
 	.page {
-		position: relative;
-		overflow: hidden;
 		min-height: 100dvh;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		padding: 1.5rem;
-		background: #08080c;
-	}
-
-	.glow {
-		position: absolute;
-		border-radius: 50%;
-		filter: blur(90px);
-		pointer-events: none;
-		z-index: 0;
-	}
-
-	.glow-a {
-		width: 500px;
-		height: 500px;
-		top: -150px;
-		left: -100px;
-		background: radial-gradient(circle, rgba(139, 92, 246, 0.35), transparent 70%);
-	}
-
-	.glow-b {
-		width: 600px;
-		height: 600px;
-		bottom: -200px;
-		right: -150px;
-		background: radial-gradient(circle, rgba(56, 189, 248, 0.22), transparent 70%);
+		background: var(--color-bg);
 	}
 
 	.card {
-		position: relative;
-		z-index: 1;
 		width: 100%;
 		max-width: 420px;
-		background: rgba(255, 255, 255, 0.03);
-		backdrop-filter: blur(20px);
-		border-radius: 16px;
-		border: 1px solid rgba(255, 255, 255, 0.08);
-		box-shadow: 0 20px 60px -20px rgba(0, 0, 0, 0.6);
+		background: var(--color-surface);
+		border-radius: var(--radius-lg);
+		border: 1px solid var(--color-border);
 		padding: 2.5rem 2rem;
-		color: #e7e7ee;
+		color: var(--color-text);
 	}
 
 	.eyebrow {
@@ -96,15 +63,15 @@
 		letter-spacing: 0.1em;
 		font-size: 0.75rem;
 		font-weight: 600;
-		color: #a78bfa;
+		color: var(--color-accent);
 		margin: 0 0 0.5rem;
 	}
 
 	.card h1 {
-		font-size: 1.6rem;
-		letter-spacing: -0.02em;
+		font-size: 1.4rem;
+		letter-spacing: -0.01em;
 		margin: 0 0 1.75rem;
-		color: #f4f4f8;
+		color: var(--color-text);
 	}
 
 	dl {
@@ -119,7 +86,7 @@
 		justify-content: space-between;
 		gap: 1rem;
 		padding-bottom: 0.9rem;
-		border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+		border-bottom: 1px solid var(--color-border);
 	}
 
 	.row:last-child {
@@ -130,13 +97,13 @@
 	dt {
 		font-size: 0.8rem;
 		font-weight: 600;
-		color: #9d9dac;
+		color: var(--color-text-muted);
 	}
 
 	dd {
 		margin: 0;
 		font-size: 0.95rem;
-		color: #e7e7ee;
+		color: var(--color-text);
 		text-align: right;
 	}
 
@@ -150,30 +117,26 @@
 		flex: 1;
 		text-align: center;
 		padding: 0.7rem 1rem;
-		border-radius: 8px;
-		background: linear-gradient(135deg, #8b5cf6, #6366f1);
-		color: white;
+		border-radius: var(--radius-sm);
+		background: var(--color-accent);
+		color: var(--color-accent-text);
 		font-weight: 600;
 		text-decoration: none;
-		box-shadow: 0 12px 30px -10px rgba(139, 92, 246, 0.55);
-		transition:
-			transform 0.15s ease,
-			box-shadow 0.15s ease;
+		transition: background 0.1s ease;
 	}
 
 	.edit-link:hover {
-		transform: translateY(-1px);
-		box-shadow: 0 16px 34px -8px rgba(139, 92, 246, 0.65);
+		background: var(--color-accent-hover);
 	}
 
 	.buttons a:not(.edit-link) {
 		font-size: 0.85rem;
 		font-weight: 600;
-		color: #9d9dac;
+		color: var(--color-text-muted);
 		text-decoration: none;
 	}
 
 	.buttons a:not(.edit-link):hover {
-		color: #e7e7ee;
+		color: var(--color-text);
 	}
 </style>

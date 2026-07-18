@@ -6,9 +6,6 @@
 </script>
 
 <div class="page">
-	<div class="glow glow-a"></div>
-	<div class="glow glow-b"></div>
-
 	<div class="card">
 		<h1>New tourdate</h1>
 
@@ -56,59 +53,29 @@
 
 <style>
 	.page {
-		position: relative;
-		overflow: hidden;
 		min-height: 100dvh;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		padding: 1.5rem;
-		background: #08080c;
-	}
-
-	.glow {
-		position: absolute;
-		border-radius: 50%;
-		filter: blur(90px);
-		pointer-events: none;
-		z-index: 0;
-	}
-
-	.glow-a {
-		width: 500px;
-		height: 500px;
-		top: -150px;
-		left: -100px;
-		background: radial-gradient(circle, rgba(139, 92, 246, 0.35), transparent 70%);
-	}
-
-	.glow-b {
-		width: 600px;
-		height: 600px;
-		bottom: -200px;
-		right: -150px;
-		background: radial-gradient(circle, rgba(56, 189, 248, 0.22), transparent 70%);
+		background: var(--color-bg);
 	}
 
 	.card {
-		position: relative;
-		z-index: 1;
 		width: 100%;
 		max-width: 380px;
-		background: rgba(255, 255, 255, 0.03);
-		backdrop-filter: blur(20px);
-		border-radius: 16px;
-		border: 1px solid rgba(255, 255, 255, 0.08);
-		box-shadow: 0 20px 60px -20px rgba(0, 0, 0, 0.6);
+		background: var(--color-surface);
+		border-radius: var(--radius-lg);
+		border: 1px solid var(--color-border);
 		padding: 2.5rem 2rem;
 	}
 
 	.card h1 {
 		text-align: center;
-		font-size: 1.5rem;
-		letter-spacing: -0.02em;
+		font-size: 1.4rem;
+		letter-spacing: -0.01em;
 		margin: 0 0 2rem;
-		color: #f4f4f8;
+		color: var(--color-text);
 	}
 
 	.new-form {
@@ -123,34 +90,30 @@
 		gap: 0.4rem;
 		font-size: 0.85rem;
 		font-weight: 600;
-		color: #9d9dac;
+		color: var(--color-text-muted);
 	}
 
 	input,
 	select {
 		font: inherit;
 		padding: 0.65rem 0.75rem;
-		border-radius: 8px;
-		border: 1px solid rgba(255, 255, 255, 0.12);
-		background: rgba(255, 255, 255, 0.04);
-		color: #e7e7ee;
-		transition:
-			border-color 0.15s ease,
-			box-shadow 0.15s ease,
-			background 0.15s ease;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--color-border-strong);
+		background: var(--color-bg);
+		color: var(--color-text);
+		transition: border-color 0.1s ease;
 	}
 
 	select option {
-		background: #14141c;
-		color: #e7e7ee;
+		background: var(--color-surface);
+		color: var(--color-text);
 	}
 
 	input:focus,
 	select:focus {
-		outline: none;
-		border-color: #a78bfa;
-		box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.2);
-		background: rgba(255, 255, 255, 0.07);
+		outline: 2px solid var(--color-accent);
+		outline-offset: -1px;
+		border-color: var(--color-accent);
 	}
 
 	.buttons {
@@ -164,40 +127,36 @@
 		flex: 1;
 		padding: 0.7rem 1rem;
 		border: none;
-		border-radius: 8px;
-		background: linear-gradient(135deg, #8b5cf6, #6366f1);
-		color: white;
+		border-radius: var(--radius-sm);
+		background: var(--color-accent);
+		color: var(--color-accent-text);
 		font: inherit;
 		font-weight: 600;
 		cursor: pointer;
-		box-shadow: 0 12px 30px -10px rgba(139, 92, 246, 0.55);
-		transition:
-			transform 0.15s ease,
-			box-shadow 0.15s ease;
+		transition: background 0.1s ease;
 	}
 
 	button:hover {
-		transform: translateY(-1px);
-		box-shadow: 0 16px 34px -8px rgba(139, 92, 246, 0.65);
+		background: var(--color-accent-hover);
 	}
 
 	.buttons a {
 		font-size: 0.85rem;
 		font-weight: 600;
-		color: #9d9dac;
+		color: var(--color-text-muted);
 		text-decoration: none;
 	}
 
 	.buttons a:hover {
-		color: #e7e7ee;
+		color: var(--color-text);
 	}
 
 	.error {
 		margin: 0;
 		padding: 0.6rem 0.75rem;
-		border-radius: 8px;
-		background: rgba(220, 38, 38, 0.15);
-		color: #f87171;
+		border-radius: var(--radius-sm);
+		background: var(--color-danger-bg);
+		color: var(--color-danger-text);
 		font-size: 0.85rem;
 	}
 </style>
