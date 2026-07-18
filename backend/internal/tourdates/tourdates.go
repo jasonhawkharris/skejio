@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"skejio/backend/internal/auth"
@@ -41,6 +42,39 @@ func (d *Date) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+const clockTimeLayout = "15:04"
+
+// ClockTime wraps pgtype.Time to marshal/unmarshal as a plain HH:MM string,
+// matching the Postgres TIME column. Unlike Date, it can't be backed by
+// time.Time: pgtype.Time needs to represent 24:00:00, which time.Time would
+// normalize to the next day's 00:00:00. Embedding pgtype.Time (rather than
+// converting by hand) lets pgx scan/encode it directly via the TimeScanner/
+// TimeValuer interfaces it promotes.
+type ClockTime struct {
+	pgtype.Time
+}
+
+func (c ClockTime) MarshalJSON() ([]byte, error) {
+	us := c.Microseconds
+	hours := us / 3_600_000_000
+	minutes := (us / 60_000_000) % 60
+	return json.Marshal(fmt.Sprintf("%02d:%02d", hours, minutes))
+}
+
+func (c *ClockTime) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	t, err := time.Parse(clockTimeLayout, s)
+	if err != nil {
+		return fmt.Errorf("time must be in HH:MM format: %w", err)
+	}
+	c.Microseconds = (int64(t.Hour())*3600 + int64(t.Minute())*60) * 1_000_000
+	c.Valid = true
+	return nil
+}
+
 type TourDate struct {
 	ID             uuid.UUID  `json:"id"`
 	Date           Date       `json:"date"`
@@ -53,6 +87,9 @@ type TourDate struct {
 	PromoterName   *string    `json:"promoter_name"`
 	PromoterNumber *string    `json:"promoter_number"`
 	PromoterEmail  *string    `json:"promoter_email"`
+	Doors          *ClockTime `json:"doors"`
+	ShowStart      *ClockTime `json:"show_start"`
+	ShowEnd        *ClockTime `json:"show_end"`
 	UserID         uuid.UUID  `json:"user_id"`
 	TourID         *uuid.UUID `json:"tour_id"`
 	RiderID        *uuid.UUID `json:"rider_id"`
@@ -70,13 +107,14 @@ func scanTourDate(row pgx.Row) (TourDate, error) {
 		&td.ID, &d, &td.City, &td.State, &td.Venue,
 		&td.POCName, &td.POCNumber, &td.POCEmail,
 		&td.PromoterName, &td.PromoterNumber, &td.PromoterEmail,
+		&td.Doors, &td.ShowStart, &td.ShowEnd,
 		&td.UserID, &td.TourID, &td.RiderID, &td.CreatedAt,
 	)
 	td.Date = Date(d)
 	return td, err
 }
 
-const tourDateColumns = "id, date, city, state, venue, poc_name, poc_number, poc_email, promoter_name, promoter_number, promoter_email, user_id, tour_id, rider_id, created_at"
+const tourDateColumns = "id, date, city, state, venue, poc_name, poc_number, poc_email, promoter_name, promoter_number, promoter_email, doors, show_start, show_end, user_id, tour_id, rider_id, created_at"
 
 // AccessibleArtistIDs returns the set of user ids whose tourdates the caller
 // may access: their own id, plus every artist they represent (if any).
@@ -284,19 +322,22 @@ func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 type createTourDateRequest struct {
-	Date           Date      `json:"date"`
-	City           string    `json:"city"`
-	State          *string   `json:"state"`
-	Venue          string    `json:"venue"`
-	POCName        *string   `json:"poc_name"`
-	POCNumber      *string   `json:"poc_number"`
-	POCEmail       *string   `json:"poc_email"`
-	PromoterName   *string   `json:"promoter_name"`
-	PromoterNumber *string   `json:"promoter_number"`
-	PromoterEmail  *string   `json:"promoter_email"`
-	ArtistID       uuid.UUID `json:"artist_id"`
-	TourID         uuid.UUID `json:"tour_id"`
-	RiderID        uuid.UUID `json:"rider_id"`
+	Date           Date       `json:"date"`
+	City           string     `json:"city"`
+	State          *string    `json:"state"`
+	Venue          string     `json:"venue"`
+	POCName        *string    `json:"poc_name"`
+	POCNumber      *string    `json:"poc_number"`
+	POCEmail       *string    `json:"poc_email"`
+	PromoterName   *string    `json:"promoter_name"`
+	PromoterNumber *string    `json:"promoter_number"`
+	PromoterEmail  *string    `json:"promoter_email"`
+	Doors          *ClockTime `json:"doors"`
+	ShowStart      *ClockTime `json:"show_start"`
+	ShowEnd        *ClockTime `json:"show_end"`
+	ArtistID       uuid.UUID  `json:"artist_id"`
+	TourID         uuid.UUID  `json:"tour_id"`
+	RiderID        uuid.UUID  `json:"rider_id"`
 }
 
 // Create assigns ownership to artist_id if given - which must be the caller
@@ -336,11 +377,12 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	row := h.DB.QueryRow(r.Context(),
-		"INSERT INTO tourdates (date, city, state, venue, poc_name, poc_number, poc_email, promoter_name, promoter_number, promoter_email, user_id, tour_id, rider_id) "+
-			"VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING "+tourDateColumns,
+		"INSERT INTO tourdates (date, city, state, venue, poc_name, poc_number, poc_email, promoter_name, promoter_number, promoter_email, doors, show_start, show_end, user_id, tour_id, rider_id) "+
+			"VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING "+tourDateColumns,
 		time.Time(req.Date), req.City, req.State, req.Venue,
 		req.POCName, req.POCNumber, req.POCEmail,
 		req.PromoterName, req.PromoterNumber, req.PromoterEmail,
+		req.Doors, req.ShowStart, req.ShowEnd,
 		artistID, tourID, riderID)
 	td, err := scanTourDate(row)
 	if err != nil {
@@ -434,6 +476,26 @@ func (h *Handler) Patch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		pb.Set(column, s)
+	}
+
+	// doors, show_start, and show_end are nullable TIME columns with the
+	// same partial-update semantics as the string columns above.
+	clockColumns := []string{"doors", "show_start", "show_end"}
+	for _, column := range clockColumns {
+		v, ok := raw[column]
+		if !ok {
+			continue
+		}
+		if string(v) == "null" {
+			pb.Set(column, nil)
+			continue
+		}
+		var c ClockTime
+		if err := json.Unmarshal(v, &c); err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, column+" must be in HH:MM format or null")
+			return
+		}
+		pb.Set(column, c)
 	}
 
 	if pb.Empty() {
