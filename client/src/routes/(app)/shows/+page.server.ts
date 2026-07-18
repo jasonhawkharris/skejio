@@ -21,12 +21,15 @@ export const load: PageServerLoad = async ({ locals, fetch, cookies }) => {
 		]);
 
 		const today = new Date().toISOString().slice(0, 10);
-		const shows = tourdates.filter((td) => td.date >= today).sort((a, b) => (a.date < b.date ? -1 : 1));
+		const shows = tourdates
+			.filter((td) => td.date >= today)
+			.sort((a, b) => (a.date < b.date ? -1 : 1));
 		return { shows, artists };
 	} catch (err) {
 		if (err instanceof BackendError && err.status === 401) {
 			cookies.delete('session_token', { path: '/' });
 			cookies.delete('user_type', { path: '/' });
+			cookies.delete('user_name', { path: '/' });
 			redirect(303, '/login');
 		}
 		throw err;
@@ -93,6 +96,7 @@ export const actions: Actions = {
 			if (err instanceof BackendError && err.status === 401) {
 				cookies.delete('session_token', { path: '/' });
 				cookies.delete('user_type', { path: '/' });
+				cookies.delete('user_name', { path: '/' });
 				redirect(303, '/login');
 			}
 			if (err instanceof BackendError && err.status === 403) {
@@ -158,6 +162,7 @@ export const actions: Actions = {
 			if (err instanceof BackendError && err.status === 401) {
 				cookies.delete('session_token', { path: '/' });
 				cookies.delete('user_type', { path: '/' });
+				cookies.delete('user_name', { path: '/' });
 				redirect(303, '/login');
 			}
 			if (err instanceof BackendError && err.status === 404) {

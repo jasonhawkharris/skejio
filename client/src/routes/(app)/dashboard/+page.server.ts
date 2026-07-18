@@ -35,6 +35,7 @@ export const load: PageServerLoad = async ({ locals, fetch, cookies }) => {
 		if (err instanceof BackendError && err.status === 401) {
 			cookies.delete('session_token', { path: '/' });
 			cookies.delete('user_type', { path: '/' });
+			cookies.delete('user_name', { path: '/' });
 			redirect(303, '/login');
 		}
 		throw err;

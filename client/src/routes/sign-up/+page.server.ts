@@ -45,7 +45,7 @@ export const actions: Actions = {
 			return fail(500, { error: 'unable to reach the server' });
 		}
 
-		let loginResult: { token: string; expires_at: string; user_type: string };
+		let loginResult: { token: string; expires_at: string; user_type: string; name: string };
 		try {
 			loginResult = await backendFetch(fetch, '/login', {
 				method: 'POST',
@@ -64,6 +64,7 @@ export const actions: Actions = {
 		};
 		cookies.set('session_token', loginResult.token, cookieOpts);
 		cookies.set('user_type', loginResult.user_type, cookieOpts);
+		cookies.set('user_name', loginResult.name, cookieOpts);
 
 		redirect(303, loginResult.user_type === 'ARTIST' ? '/dashboard' : '/shows');
 	}

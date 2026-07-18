@@ -98,8 +98,9 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var userID uuid.UUID
 	var passwordHash string
 	var userType string
-	err := h.DB.QueryRow(r.Context(), "SELECT id, password_hash, user_type FROM users WHERE email = $1", req.Email).
-		Scan(&userID, &passwordHash, &userType)
+	var name string
+	err := h.DB.QueryRow(r.Context(), "SELECT id, password_hash, user_type, name FROM users WHERE email = $1", req.Email).
+		Scan(&userID, &passwordHash, &userType, &name)
 	if errors.Is(err, pgx.ErrNoRows) {
 		httpx.WriteError(w, http.StatusUnauthorized, "invalid email or password")
 		return
@@ -132,6 +133,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		"token":      token,
 		"expires_at": expiresAt,
 		"user_type":  userType,
+		"name":       name,
 	})
 }
 

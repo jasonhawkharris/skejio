@@ -6,3 +6,12 @@ export function formatClockTime(t: string): string {
 	h = h % 12 || 12;
 	return `${h}:${mStr} ${period}`;
 }
+
+export function initials(name: string): string {
+	return name
+		.split(/\s+/)
+		.filter(Boolean)
+		.slice(0, 2)
+		.map((part) => part[0]?.toUpperCase())
+		.join('');
+}

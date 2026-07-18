@@ -19,7 +19,7 @@ export const actions: Actions = {
 			return fail(400, { error: 'email and password are required' });
 		}
 
-		let result: { token: string; expires_at: string; user_type: string };
+		let result: { token: string; expires_at: string; user_type: string; name: string };
 		try {
 			result = await backendFetch(fetch, '/login', {
 				method: 'POST',
@@ -42,6 +42,7 @@ export const actions: Actions = {
 		};
 		cookies.set('session_token', result.token, cookieOpts);
 		cookies.set('user_type', result.user_type, cookieOpts);
+		cookies.set('user_name', result.name, cookieOpts);
 
 		redirect(303, result.user_type === 'ARTIST' ? '/dashboard' : '/shows');
 	}

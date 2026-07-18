@@ -289,8 +289,8 @@
 				{/if}
 
 				<div class="buttons">
-					<button type="submit" class="primary">Save</button>
 					<button type="button" onclick={closeEdit}>Cancel</button>
+					<button type="submit" class="primary">Save</button>
 				</div>
 			</form>
 		</div>
@@ -356,8 +356,8 @@
 				{/if}
 
 				<div class="buttons">
-					<button type="submit" class="primary">Create</button>
 					<button type="button" onclick={closeCreate}>Cancel</button>
+					<button type="submit" class="primary">Create</button>
 				</div>
 			</form>
 		</div>
@@ -367,8 +367,7 @@
 <style>
 	.split {
 		display: flex;
-		gap: 1.5rem;
-		height: calc(100dvh - 6.5rem);
+		height: calc(100dvh - 8.75rem);
 	}
 
 	.panel {
@@ -376,12 +375,14 @@
 		min-width: 0;
 		display: flex;
 		flex-direction: column;
-		gap: 1rem;
-		background: var(--color-surface);
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-lg);
-		padding: 1.5rem;
+		gap: 0.75rem;
+		padding: 0 1.5rem;
 		overflow-y: auto;
+	}
+
+	.list-panel {
+		padding-left: 0;
+		border-right: 1px solid var(--color-border);
 	}
 
 	.panel-header {
@@ -392,7 +393,7 @@
 	}
 
 	.panel h1 {
-		font-size: 1.3rem;
+		font-size: 1.05rem;
 		letter-spacing: -0.01em;
 		margin: 0;
 	}
@@ -400,11 +401,11 @@
 	.new-link {
 		flex-shrink: 0;
 		font: inherit;
-		font-size: 0.82rem;
+		font-size: 0.78rem;
 		font-weight: 600;
 		color: var(--color-accent-text);
 		text-decoration: none;
-		padding: 0.5rem 0.9rem;
+		padding: 0.4rem 0.75rem;
 		border: none;
 		border-radius: var(--radius-sm);
 		background: var(--color-accent);
@@ -417,7 +418,7 @@
 	}
 
 	.panel h2 {
-		font-size: 1.2rem;
+		font-size: 1.05rem;
 		letter-spacing: -0.01em;
 		margin: 0;
 	}
@@ -425,7 +426,7 @@
 	.empty {
 		margin: 0;
 		color: var(--color-text-muted);
-		font-size: 0.9rem;
+		font-size: 0.85rem;
 	}
 
 	.show-list {
@@ -434,7 +435,7 @@
 		padding: 0;
 		display: flex;
 		flex-direction: column;
-		gap: 0.5rem;
+		gap: 0.05rem;
 	}
 
 	.show-row {
@@ -443,41 +444,45 @@
 		align-items: center;
 		justify-content: space-between;
 		gap: 1rem;
-		padding: 0.75rem 1rem;
-		background: var(--color-bg);
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-md);
+		padding: 0.5rem 0.6rem;
+		background: transparent;
+		border: none;
+		border-radius: var(--radius-sm);
 		font: inherit;
 		color: inherit;
 		text-align: left;
 		cursor: pointer;
-		transition: border-color 0.1s ease;
+		transition: background 0.1s ease;
 	}
 
 	.show-row:hover {
-		border-color: var(--color-border-strong);
+		background: var(--color-surface-hover);
+	}
+
+	.show-row:hover .edit-btn {
+		opacity: 1;
 	}
 
 	.show-row.selected {
-		border-color: var(--color-accent);
+		background: var(--color-active);
 	}
 
 	.show-main {
 		display: flex;
 		flex-direction: column;
-		gap: 0.15rem;
+		gap: 0.1rem;
 		min-width: 0;
 	}
 
 	.show-date {
-		font-size: 0.75rem;
+		font-size: 0.7rem;
 		font-weight: 600;
-		color: var(--color-accent);
+		color: var(--color-text-faint);
 	}
 
 	.show-venue {
-		font-weight: 600;
-		font-size: 0.92rem;
+		font-weight: 500;
+		font-size: 0.85rem;
 		color: var(--color-text);
 		white-space: nowrap;
 		overflow: hidden;
@@ -485,37 +490,49 @@
 	}
 
 	.show-location {
-		font-size: 0.8rem;
+		font-size: 0.76rem;
 		color: var(--color-text-muted);
 	}
 
 	.edit-btn {
 		flex-shrink: 0;
-		font-size: 0.8rem;
+		font-size: 0.76rem;
 		font-weight: 600;
-		color: var(--color-text);
-		padding: 0.35rem 0.85rem;
-		border: 1px solid var(--color-border-strong);
+		color: var(--color-text-muted);
+		padding: 0.3rem 0.6rem;
+		border: none;
 		border-radius: var(--radius-sm);
 		cursor: pointer;
+		opacity: 0;
+		transition:
+			opacity 0.1s ease,
+			background 0.1s ease,
+			color 0.1s ease;
 	}
 
 	.edit-btn:hover {
-		background: var(--color-surface-hover);
+		background: var(--color-active);
+		color: var(--color-text);
+	}
+
+	.edit-btn:focus-visible {
+		opacity: 1;
+		outline: 2px solid var(--color-accent);
+		outline-offset: 1px;
 	}
 
 	dl {
 		margin: 0;
 		display: flex;
 		flex-direction: column;
-		gap: 0.75rem;
+		gap: 0.6rem;
 	}
 
 	.row {
 		display: flex;
 		justify-content: space-between;
 		gap: 1rem;
-		padding-bottom: 0.75rem;
+		padding-bottom: 0.6rem;
 		border-bottom: 1px solid var(--color-border);
 	}
 
@@ -525,14 +542,14 @@
 	}
 
 	dt {
-		font-size: 0.8rem;
-		font-weight: 600;
+		font-size: 0.78rem;
+		font-weight: 500;
 		color: var(--color-text-muted);
 	}
 
 	dd {
 		margin: 0;
-		font-size: 0.9rem;
+		font-size: 0.85rem;
 		color: var(--color-text);
 		text-align: right;
 	}
@@ -555,31 +572,34 @@
 		overflow-y: auto;
 		background: var(--color-surface);
 		border: 1px solid var(--color-border);
-		border-radius: var(--radius-lg);
-		padding: 2rem;
+		border-radius: var(--radius-md);
+		padding: 1.5rem;
 	}
 
 	.modal h2 {
-		font-size: 1.2rem;
+		font-size: 0.95rem;
+		font-weight: 600;
 		letter-spacing: -0.01em;
-		margin: 0 0 1.5rem;
+		margin: 0 0 1.25rem;
+		padding-bottom: 1rem;
+		border-bottom: 1px solid var(--color-border);
 	}
 
 	.field-grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-		gap: 1rem;
+		gap: 0.85rem;
 	}
 
 	.artist-field {
-		margin-bottom: 1rem;
+		margin-bottom: 0.85rem;
 	}
 
 	.advanced-toggle {
 		align-self: flex-start;
-		margin: 1.25rem 0;
+		margin: 1rem 0;
 		font: inherit;
-		font-size: 0.85rem;
+		font-size: 0.78rem;
 		font-weight: 600;
 		color: var(--color-accent);
 		background: none;
@@ -589,17 +609,20 @@
 	}
 
 	.buttons {
-		margin-top: 1.5rem;
+		margin-top: 1.25rem;
+		padding-top: 1rem;
+		border-top: 1px solid var(--color-border);
 		display: flex;
 		align-items: center;
-		gap: 1rem;
+		justify-content: flex-end;
+		gap: 0.5rem;
 	}
 
 	.buttons button {
-		flex: 1;
-		padding: 0.65rem 1rem;
+		padding: 0.4rem 0.85rem;
 		border-radius: var(--radius-sm);
 		font: inherit;
+		font-size: 0.8rem;
 		font-weight: 600;
 		cursor: pointer;
 	}
@@ -616,11 +639,12 @@
 
 	.buttons button:not(.primary) {
 		background: transparent;
-		border: 1px solid var(--color-border-strong);
-		color: var(--color-text);
+		border: none;
+		color: var(--color-text-muted);
 	}
 
 	.buttons button:not(.primary):hover {
 		background: var(--color-surface-hover);
+		color: var(--color-text);
 	}
 </style>

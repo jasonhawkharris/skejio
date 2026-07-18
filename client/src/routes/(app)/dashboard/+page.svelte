@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { formatClockTime } from '$lib/format';
+	import { formatClockTime, initials } from '$lib/format';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -35,15 +35,6 @@
 		AGENT: 'Agent',
 		LABEL: 'Label'
 	};
-
-	function initials(name: string): string {
-		return name
-			.split(/\s+/)
-			.filter(Boolean)
-			.slice(0, 2)
-			.map((part) => part[0]?.toUpperCase())
-			.join('');
-	}
 </script>
 
 <div class="page">
@@ -54,7 +45,7 @@
 		</div>
 
 		{#if data.upcoming.length === 0}
-			<div class="card empty">
+			<div class="empty">
 				<p>No upcoming shows on the books.</p>
 				<a class="new-link" href={resolve('/shows')}>+ Add a tourdate</a>
 			</div>
@@ -89,7 +80,7 @@
 		</div>
 
 		{#if data.team.length === 0}
-			<div class="card empty">
+			<div class="empty">
 				<p>No representatives yet.</p>
 			</div>
 		{:else}
@@ -129,20 +120,20 @@
 	}
 
 	.page h1 {
-		font-size: 1.5rem;
+		font-size: 1.15rem;
 		letter-spacing: -0.01em;
 		margin: 0;
 	}
 
 	.page h2 {
-		font-size: 1.05rem;
+		font-size: 0.95rem;
 		letter-spacing: -0.01em;
 		margin: 0;
 		color: var(--color-text);
 	}
 
 	.all-link {
-		font-size: 0.85rem;
+		font-size: 0.8rem;
 		font-weight: 500;
 		color: var(--color-text-muted);
 		text-decoration: none;
@@ -152,32 +143,26 @@
 		color: var(--color-text);
 	}
 
-	.card {
-		background: var(--color-surface);
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-lg);
-		padding: 1.5rem;
-	}
-
 	.empty {
 		display: flex;
 		flex-direction: column;
 		align-items: flex-start;
-		gap: 0.9rem;
+		gap: 0.75rem;
+		padding: 0.5rem 0;
 	}
 
 	.empty p {
 		margin: 0;
 		color: var(--color-text-muted);
-		font-size: 0.9rem;
+		font-size: 0.85rem;
 	}
 
 	.new-link {
-		font-size: 0.85rem;
+		font-size: 0.8rem;
 		font-weight: 600;
 		color: var(--color-accent-text);
 		text-decoration: none;
-		padding: 0.55rem 1.1rem;
+		padding: 0.4rem 0.85rem;
 		border-radius: var(--radius-sm);
 		background: var(--color-accent);
 	}
@@ -192,57 +177,57 @@
 		padding: 0;
 		display: flex;
 		flex-direction: column;
-		gap: 0.65rem;
+		gap: 0.1rem;
 	}
 
 	.show-row {
 		width: 100%;
 		display: flex;
 		align-items: center;
-		gap: 1.1rem;
-		padding: 0.85rem 1.1rem;
-		background: var(--color-surface);
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-md);
+		gap: 1rem;
+		padding: 0.5rem 0.6rem;
+		background: transparent;
+		border: none;
+		border-radius: var(--radius-sm);
 		font: inherit;
 		color: inherit;
 		text-align: left;
 		cursor: pointer;
-		transition: border-color 0.1s ease;
+		transition: background 0.1s ease;
 	}
 
 	.show-row:hover {
-		border-color: var(--color-border-strong);
+		background: var(--color-surface-hover);
 	}
 
 	.show-row:focus-visible {
 		outline: 2px solid var(--color-accent);
-		outline-offset: 2px;
+		outline-offset: -2px;
 	}
 
 	.date-badge {
 		flex-shrink: 0;
-		width: 3.25rem;
+		width: 2.75rem;
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		padding: 0.4rem 0;
+		padding: 0.3rem 0;
 		border-radius: var(--radius-sm);
 		background: var(--color-bg);
-		border: 1px solid var(--color-border-strong);
+		border: 1px solid var(--color-border);
 	}
 
 	.badge-month {
-		font-size: 0.65rem;
+		font-size: 0.6rem;
 		font-weight: 700;
 		letter-spacing: 0.06em;
-		color: var(--color-accent);
+		color: var(--color-text-faint);
 	}
 
 	.badge-day {
 		font-family: var(--font-display);
-		font-size: 1.15rem;
+		font-size: 1rem;
 		font-weight: 700;
 		line-height: 1.1;
 		color: var(--color-text);
@@ -257,8 +242,8 @@
 	}
 
 	.venue {
-		font-weight: 600;
-		font-size: 0.95rem;
+		font-weight: 500;
+		font-size: 0.85rem;
 		color: var(--color-text);
 		white-space: nowrap;
 		overflow: hidden;
@@ -266,15 +251,15 @@
 	}
 
 	.location {
-		font-size: 0.82rem;
+		font-size: 0.78rem;
 		color: var(--color-text-muted);
 	}
 
 	.show-time {
 		flex-shrink: 0;
-		font-size: 0.82rem;
-		font-weight: 600;
-		color: var(--color-text-muted);
+		font-size: 0.78rem;
+		font-weight: 500;
+		color: var(--color-text-faint);
 	}
 
 	.team-list {
@@ -283,39 +268,41 @@
 		padding: 0;
 		display: flex;
 		flex-direction: column;
-		gap: 0.65rem;
+		gap: 0.1rem;
 	}
 
 	.team-row {
 		display: flex;
 		align-items: center;
-		gap: 0.9rem;
-		padding: 0.75rem 1.1rem;
-		background: var(--color-surface);
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-md);
+		gap: 0.75rem;
+		padding: 0.5rem 0.6rem;
+		border-radius: var(--radius-sm);
+		transition: background 0.1s ease;
+	}
+
+	.team-row:hover {
+		background: var(--color-surface-hover);
 	}
 
 	.avatar {
 		flex-shrink: 0;
-		width: 2.25rem;
-		height: 2.25rem;
+		width: 1.9rem;
+		height: 1.9rem;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		border-radius: 999px;
-		background: var(--color-bg);
-		border: 1px solid var(--color-border-strong);
-		font-size: 0.78rem;
+		background: var(--color-active);
+		font-size: 0.7rem;
 		font-weight: 700;
-		color: var(--color-accent);
+		color: var(--color-text);
 	}
 
 	.rep-name {
 		flex: 1;
 		min-width: 0;
-		font-weight: 600;
-		font-size: 0.92rem;
+		font-weight: 500;
+		font-size: 0.85rem;
 		color: var(--color-text);
 		white-space: nowrap;
 		overflow: hidden;
@@ -324,12 +311,9 @@
 
 	.role-badge {
 		flex-shrink: 0;
-		font-size: 0.72rem;
+		font-size: 0.7rem;
 		font-weight: 600;
 		letter-spacing: 0.03em;
-		color: var(--color-text-muted);
-		padding: 0.3rem 0.7rem;
-		border-radius: var(--radius-sm);
-		border: 1px solid var(--color-border-strong);
+		color: var(--color-text-faint);
 	}
 </style>
