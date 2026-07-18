@@ -9,6 +9,8 @@ import (
 	"skejio/backend/internal/auth"
 	"skejio/backend/internal/expenses"
 	"skejio/backend/internal/financials"
+	"skejio/backend/internal/merch"
+	"skejio/backend/internal/merchvariants"
 	"skejio/backend/internal/representatives"
 	"skejio/backend/internal/riders"
 	"skejio/backend/internal/tourdates"
@@ -29,7 +31,7 @@ func testHandler(w http.ResponseWriter, r *http.Request) {
 
 // NewRouter wires every route. authH.DB is used to construct the auth
 // middleware, since all handlers share the same underlying connection pool.
-func NewRouter(authH *auth.Handler, tourdatesH *tourdates.Handler, usersH *users.Handler, repsH *representatives.Handler, financialsH *financials.Handler, expensesH *expenses.Handler, toursH *tours.Handler, ridersH *riders.Handler) *mux.Router {
+func NewRouter(authH *auth.Handler, tourdatesH *tourdates.Handler, usersH *users.Handler, repsH *representatives.Handler, financialsH *financials.Handler, expensesH *expenses.Handler, toursH *tours.Handler, ridersH *riders.Handler, merchH *merch.Handler, merchVariantsH *merchvariants.Handler) *mux.Router {
 	r := mux.NewRouter()
 	r.HandleFunc("/", healthHandler).Methods(http.MethodGet)
 	r.HandleFunc("/test", testHandler).Methods(http.MethodGet)
@@ -68,6 +70,19 @@ func NewRouter(authH *auth.Handler, tourdatesH *tourdates.Handler, usersH *users
 	ridersRouter.HandleFunc("/{id}", ridersH.Get).Methods(http.MethodGet)
 	ridersRouter.HandleFunc("/{id}", ridersH.Patch).Methods(http.MethodPatch)
 	ridersRouter.HandleFunc("/{id}", ridersH.Delete).Methods(http.MethodDelete)
+
+	merchRouter := r.PathPrefix("/merch").Subrouter()
+	merchRouter.Use(auth.Middleware(authH.DB))
+	merchRouter.HandleFunc("", merchH.List).Methods(http.MethodGet)
+	merchRouter.HandleFunc("", merchH.Create).Methods(http.MethodPost)
+	merchRouter.HandleFunc("/{id}", merchH.Get).Methods(http.MethodGet)
+	merchRouter.HandleFunc("/{id}", merchH.Patch).Methods(http.MethodPatch)
+	merchRouter.HandleFunc("/{id}", merchH.Delete).Methods(http.MethodDelete)
+	merchRouter.HandleFunc("/{id}/variants", merchVariantsH.List).Methods(http.MethodGet)
+	merchRouter.HandleFunc("/{id}/variants", merchVariantsH.Create).Methods(http.MethodPost)
+	merchRouter.HandleFunc("/{id}/variants/{variantID}", merchVariantsH.Get).Methods(http.MethodGet)
+	merchRouter.HandleFunc("/{id}/variants/{variantID}", merchVariantsH.Patch).Methods(http.MethodPatch)
+	merchRouter.HandleFunc("/{id}/variants/{variantID}", merchVariantsH.Delete).Methods(http.MethodDelete)
 
 	logoutRouter := r.PathPrefix("/logout").Subrouter()
 	logoutRouter.Use(auth.Middleware(authH.DB))

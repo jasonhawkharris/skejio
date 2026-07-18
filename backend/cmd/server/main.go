@@ -10,6 +10,8 @@ import (
 	"skejio/backend/internal/db"
 	"skejio/backend/internal/expenses"
 	"skejio/backend/internal/financials"
+	"skejio/backend/internal/merch"
+	"skejio/backend/internal/merchvariants"
 	"skejio/backend/internal/representatives"
 	"skejio/backend/internal/riders"
 	"skejio/backend/internal/tourdates"
@@ -30,8 +32,10 @@ func main() {
 	expensesH := &expenses.Handler{DB: pool}
 	toursH := &tours.Handler{DB: pool}
 	ridersH := &riders.Handler{DB: pool}
+	merchH := &merch.Handler{DB: pool}
+	merchVariantsH := &merchvariants.Handler{DB: pool}
 
-	r := api.NewRouter(authH, tourdatesH, usersH, representativesH, financialsH, expensesH, toursH, ridersH)
+	r := api.NewRouter(authH, tourdatesH, usersH, representativesH, financialsH, expensesH, toursH, ridersH, merchH, merchVariantsH)
 
 	log.Println("listening on :8080")
 	log.Fatal(http.ListenAndServe(":8080", r))

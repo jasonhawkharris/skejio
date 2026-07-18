@@ -4,6 +4,7 @@ export interface TourDate {
 	city: string;
 	state: string | null;
 	venue: string;
+	show_start: string | null;
 	user_id: string;
 	created_at: string;
 }

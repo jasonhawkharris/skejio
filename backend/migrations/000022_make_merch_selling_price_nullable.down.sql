@@ -1,0 +1,1 @@
+ALTER TABLE merch ALTER COLUMN selling_price SET NOT NULL;

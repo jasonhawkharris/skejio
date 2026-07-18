@@ -7,7 +7,7 @@ const VALID_USER_TYPES = ['ARTIST', 'MANAGER', 'AGENT', 'CREW', 'LABEL'];
 
 export const load: PageServerLoad = async ({ locals }) => {
 	if (locals.token) {
-		redirect(303, '/tourdates');
+		redirect(303, locals.userType === 'ARTIST' ? '/dashboard' : '/tourdates');
 	}
 };
 
@@ -45,7 +45,7 @@ export const actions: Actions = {
 			return fail(500, { error: 'unable to reach the server' });
 		}
 
-		let loginResult: { token: string; expires_at: string };
+		let loginResult: { token: string; expires_at: string; user_type: string };
 		try {
 			loginResult = await backendFetch(fetch, '/login', {
 				method: 'POST',
@@ -55,14 +55,16 @@ export const actions: Actions = {
 			redirect(303, '/login');
 		}
 
-		cookies.set('session_token', loginResult.token, {
+		const cookieOpts = {
 			path: '/',
 			httpOnly: true,
-			sameSite: 'lax',
+			sameSite: 'lax' as const,
 			secure: !dev,
 			expires: new Date(loginResult.expires_at)
-		});
+		};
+		cookies.set('session_token', loginResult.token, cookieOpts);
+		cookies.set('user_type', loginResult.user_type, cookieOpts);
 
-		redirect(303, '/tourdates');
+		redirect(303, loginResult.user_type === 'ARTIST' ? '/dashboard' : '/tourdates');
 	}
 };

@@ -20,11 +20,15 @@ func TestLogin_Success(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 	var resp struct {
-		Token string `json:"token"`
+		Token    string `json:"token"`
+		UserType string `json:"user_type"`
 	}
 	json.Unmarshal(rec.Body.Bytes(), &resp)
 	if resp.Token == "" {
 		t.Fatalf("expected a session token in the response")
+	}
+	if resp.UserType != "ARTIST" {
+		t.Fatalf("expected user_type ARTIST, got %q", resp.UserType)
 	}
 }
 

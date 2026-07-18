@@ -5,7 +5,7 @@ import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
 	if (locals.token) {
-		redirect(303, '/tourdates');
+		redirect(303, locals.userType === 'ARTIST' ? '/dashboard' : '/tourdates');
 	}
 };
 
@@ -19,7 +19,7 @@ export const actions: Actions = {
 			return fail(400, { error: 'email and password are required' });
 		}
 
-		let result: { token: string; expires_at: string };
+		let result: { token: string; expires_at: string; user_type: string };
 		try {
 			result = await backendFetch(fetch, '/login', {
 				method: 'POST',
@@ -33,14 +33,16 @@ export const actions: Actions = {
 			return fail(500, { error: 'unable to reach the server' });
 		}
 
-		cookies.set('session_token', result.token, {
+		const cookieOpts = {
 			path: '/',
 			httpOnly: true,
-			sameSite: 'lax',
+			sameSite: 'lax' as const,
 			secure: !dev,
 			expires: new Date(result.expires_at)
-		});
+		};
+		cookies.set('session_token', result.token, cookieOpts);
+		cookies.set('user_type', result.user_type, cookieOpts);
 
-		redirect(303, '/tourdates');
+		redirect(303, result.user_type === 'ARTIST' ? '/dashboard' : '/tourdates');
 	}
 };
