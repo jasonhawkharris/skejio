@@ -1,12 +1,9 @@
 import { redirect } from '@sveltejs/kit';
 import { BackendError, backendFetch } from '$lib/server/backend';
 import type { RepresentedUser, TourDate } from '$lib/types';
-import type { Actions, PageServerLoad } from './$types';
+import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals, fetch, cookies }) => {
-	if (!locals.token) {
-		redirect(303, '/login');
-	}
 	// Only artists have a dashboard so far - everyone else still lands on
 	// /tourdates. locals.userType is only unset for sessions predating this
 	// cookie, so let those through rather than bouncing a real artist out.
@@ -39,16 +36,5 @@ export const load: PageServerLoad = async ({ locals, fetch, cookies }) => {
 			redirect(303, '/login');
 		}
 		throw err;
-	}
-};
-
-export const actions: Actions = {
-	logout: async ({ locals, cookies, fetch }) => {
-		if (locals.token) {
-			await backendFetch(fetch, '/logout', { method: 'POST', token: locals.token }).catch(() => {});
-		}
-		cookies.delete('session_token', { path: '/' });
-		cookies.delete('user_type', { path: '/' });
-		redirect(303, '/login');
 	}
 };
