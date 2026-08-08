@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { untrack } from 'svelte';
+	import { slide } from 'svelte/transition';
 	import FormError from '$lib/components/FormError.svelte';
 	import FormField from '$lib/components/FormField.svelte';
 	import { formatClockTime } from '$lib/format';
@@ -13,6 +14,10 @@
 	// untrack: capture that once on mount, rather than re-selecting it every
 	// time data reloads and clobbering whatever the user has since clicked.
 	let selectedId = $state<string | null>(untrack(() => data.shows[0]?.id ?? null));
+	// Mobile-only: which show's row is expanded into an inline accordion panel.
+	// Kept separate from selectedId (which drives the desktop detail panel) so
+	// collapsing a row on mobile doesn't affect what the desktop panel shows.
+	let expandedId = $state<string | null>(null);
 	let editingShow = $state<TourDate | null>(null);
 	let showAdvanced = $state(false);
 	let creating = $state(false);
@@ -92,6 +97,11 @@
 		}
 	}
 
+	function selectShow(show: TourDate) {
+		selectedId = show.id;
+		expandedId = expandedId === show.id ? null : show.id;
+	}
+
 	function openEdit(show: TourDate) {
 		editingShow = show;
 		showAdvanced = false;
@@ -147,13 +157,29 @@
 							type="button"
 							class="show-row"
 							class:selected={show.id === selectedId}
-							onclick={() => (selectedId = show.id)}
+							class:expanded={show.id === expandedId}
+							aria-expanded={show.id === expandedId}
+							onclick={() => selectShow(show)}
 						>
 							<span class="show-main">
 								<span class="show-date">{show.date}</span>
 								<span class="show-venue">{show.venue}</span>
 								<span class="show-location">{formatState(show.city, show.state)}</span>
 							</span>
+							<svg
+								class="chevron"
+								width="14"
+								height="14"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								aria-hidden="true"
+							>
+								<polyline points="6 9 12 15 18 9" />
+							</svg>
 							<span
 								role="button"
 								tabindex="0"
@@ -173,6 +199,19 @@
 								Edit
 							</span>
 						</button>
+
+						{#if show.id === expandedId}
+							<div class="show-detail" transition:slide={{ duration: 400 }}>
+								<dl>
+									{#each DETAIL_FIELDS as field (field.key)}
+										<div class="row">
+											<dt>{field.label}</dt>
+											<dd>{detailValue(field.key, show[field.key])}</dd>
+										</div>
+									{/each}
+								</dl>
+							</div>
+						{/if}
 					</li>
 				{/each}
 			</ul>
@@ -467,6 +506,15 @@
 		background: var(--color-active);
 	}
 
+	/* Accordion affordances are mobile-only; see the max-width: 860px block. */
+	.chevron {
+		display: none;
+	}
+
+	.show-detail {
+		display: none;
+	}
+
 	.show-main {
 		display: flex;
 		flex-direction: column;
@@ -646,5 +694,96 @@
 	.buttons button:not(.primary):hover {
 		background: var(--color-surface-hover);
 		color: var(--color-text);
+	}
+
+	/* These two blocks are deliberately last: several rules above (.edit-btn
+	   opacity, .row gap, dd text-align, .show-detail/.chevron display, ...)
+	   target the same selectors, and CSS resolves same-specificity conflicts
+	   by source order, not by media-query nesting. Placed earlier, these
+	   would get silently overridden by the later base rules. */
+	@media (max-width: 860px) {
+		.split {
+			flex-direction: column;
+			height: auto;
+		}
+
+		.panel {
+			flex: none;
+			padding: 0;
+			overflow-y: visible;
+		}
+
+		.list-panel {
+			border-right: none;
+		}
+
+		/* Detail lives inline in each row's accordion panel on mobile instead. */
+		.detail-panel {
+			display: none;
+		}
+
+		/* No hover on touch devices, so the edit affordance must stay visible. */
+		.edit-btn {
+			opacity: 1;
+		}
+
+		.chevron {
+			display: block;
+			flex-shrink: 0;
+			color: var(--color-text-faint);
+			transition: transform 0.15s ease;
+		}
+
+		.show-row.expanded .chevron {
+			transform: rotate(180deg);
+		}
+
+		/* On mobile the highlight should track the open accordion row, not
+		   the desktop detail-panel selection (selectedId keeps its last value
+		   even after a row is collapsed). */
+		.show-row.selected {
+			background: transparent;
+		}
+
+		.show-row.expanded {
+			background: var(--color-active);
+		}
+
+		.show-detail {
+			display: block;
+			/* Indented in from both edges relative to .show-row's 0.6rem, so the
+			   expanded content reads as nested under the tourdate above it. */
+			padding: 0.1rem 1.35rem 1rem;
+			border-top: 1px dashed var(--color-border);
+			margin: 0 0 0.4rem;
+		}
+
+		.show-detail dl {
+			padding-top: 0.75rem;
+		}
+	}
+
+	@media (max-width: 480px) {
+		.modal-backdrop {
+			padding: 0.75rem;
+		}
+
+		.modal {
+			padding: 1.1rem;
+			max-height: 92dvh;
+		}
+
+		.field-grid {
+			grid-template-columns: 1fr;
+		}
+
+		.row {
+			flex-direction: column;
+			gap: 0.2rem;
+		}
+
+		dd {
+			text-align: left;
+		}
 	}
 </style>

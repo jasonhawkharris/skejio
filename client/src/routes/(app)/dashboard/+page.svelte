@@ -316,4 +316,23 @@
 		letter-spacing: 0.03em;
 		color: var(--color-text-faint);
 	}
+
+	@media (max-width: 480px) {
+		.page {
+			gap: 2rem;
+		}
+
+		.show-row {
+			gap: 0.6rem;
+			padding: 0.5rem 0.4rem;
+		}
+
+		.date-badge {
+			width: 2.35rem;
+		}
+
+		.show-time {
+			display: none;
+		}
+	}
 </style>

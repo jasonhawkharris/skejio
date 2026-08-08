@@ -179,4 +179,30 @@
 		color: var(--color-text-muted);
 		border-top: 1px solid var(--color-border);
 	}
+
+	@media (max-width: 480px) {
+		.nav {
+			padding: 1.25rem 1.25rem;
+		}
+
+		.nav-links {
+			gap: 0.75rem;
+		}
+
+		.nav-cta {
+			padding: 0.45rem 0.85rem;
+		}
+
+		.hero {
+			padding: 2rem 1.25rem 3rem;
+		}
+
+		.subtext {
+			font-size: 0.95rem;
+		}
+
+		.features {
+			grid-template-columns: 1fr;
+		}
+	}
 </style>

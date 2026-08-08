@@ -52,4 +52,18 @@
 		color: var(--color-text-muted);
 		font-size: 0.925rem;
 	}
+
+	@media (max-width: 480px) {
+		.auth-page {
+			padding: 1rem;
+		}
+
+		.auth-card {
+			padding: 1.75rem 1.25rem;
+		}
+
+		.brand {
+			margin-bottom: 1.5rem;
+		}
+	}
 </style>

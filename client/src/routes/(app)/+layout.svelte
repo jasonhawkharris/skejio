@@ -113,12 +113,34 @@
 				<span class="crumb-sep">/</span>
 				<span class="crumb-current">{activeItem.label}</span>
 			{/if}
+
+			<div class="topbar-user">
+				<span class="avatar avatar-sm">{initials(data.userName ?? '?')}</span>
+				<form method="POST" action={resolve('/logout')}>
+					<button type="submit" class="logout" aria-label="Log out" title="Log out">
+						{@render navIcon('logout')}
+					</button>
+				</form>
+			</div>
 		</header>
 
 		<main class="content">
 			{@render children()}
 		</main>
 	</div>
+
+	<nav class="mobile-nav" aria-label="Primary">
+		<ul>
+			{#each NAV_ITEMS as item (item.href)}
+				<li>
+					<a href={resolve(item.href)} class:active={page.url.pathname === item.href}>
+						{@render navIcon(item.key)}
+						<span>{item.label}</span>
+					</a>
+				</li>
+			{/each}
+		</ul>
+	</nav>
 </div>
 
 <style>
@@ -308,5 +330,103 @@
 		flex: 1;
 		min-width: 0;
 		padding: 2rem clamp(1.5rem, 4vw, 3.5rem) 4rem;
+	}
+
+	/* Hidden on desktop: the sidebar already shows the account + logout. */
+	.topbar-user {
+		display: none;
+		align-items: center;
+		gap: 0.5rem;
+		margin-left: auto;
+	}
+
+	.avatar-sm {
+		width: 1.5rem;
+		height: 1.5rem;
+		font-size: 0.6rem;
+	}
+
+	/* Hidden on desktop: the sidebar is the primary nav there. */
+	.mobile-nav {
+		display: none;
+	}
+
+	@media (max-width: 860px) {
+		.sidebar {
+			display: none;
+		}
+
+		.topbar {
+			padding: 0 1rem;
+		}
+
+		.topbar-user {
+			display: flex;
+		}
+
+		.content {
+			padding: 1.5rem 1.25rem calc(4.75rem + 1.5rem);
+		}
+
+		.mobile-nav {
+			display: block;
+			position: fixed;
+			left: 0;
+			right: 0;
+			bottom: 0;
+			z-index: 20;
+			background: var(--color-surface);
+			border-top: 1px solid var(--color-border);
+			padding-bottom: env(safe-area-inset-bottom);
+		}
+
+		.mobile-nav ul {
+			list-style: none;
+			margin: 0;
+			padding: 0;
+			display: flex;
+		}
+
+		.mobile-nav li {
+			flex: 1;
+			min-width: 0;
+		}
+
+		.mobile-nav a {
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			gap: 0.2rem;
+			padding: 0.5rem 0.25rem 0.4rem;
+			font-size: 0.62rem;
+			font-weight: 600;
+			letter-spacing: 0.01em;
+			color: var(--color-text-muted);
+			text-decoration: none;
+			white-space: nowrap;
+		}
+
+		.mobile-nav a :global(svg) {
+			width: 18px;
+			height: 18px;
+		}
+
+		.mobile-nav a.active {
+			color: var(--color-accent);
+		}
+	}
+
+	@media (max-width: 480px) {
+		.content {
+			padding: 1.25rem 1rem calc(4.5rem + 1.25rem);
+		}
+
+		.mobile-nav a span {
+			display: none;
+		}
+
+		.mobile-nav a {
+			padding: 0.6rem 0.25rem;
+		}
 	}
 </style>
